@@ -36,7 +36,7 @@ B_vec = np.array([
 # ======================
 
 jitter_time = 5e-9                # s
-galactic_noise_floor = 8.0        # µV/m aucune idée j'ai pas vérifié
+galactic_noise_floor = 8.0        # µV (aucune idée j'ai pas vérifié)
 assym_coeff = 0.01
 cr = 1.0
 

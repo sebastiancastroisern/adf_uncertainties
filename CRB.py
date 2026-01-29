@@ -115,6 +115,27 @@ def build_Xsource(alpha: float, beta: float, r_xmax: float) -> np.ndarray:
 
     return Xsource
 
+def build_K_vector(theta: float, phi: float) -> np.ndarray:
+    """ Build the shower direction vector K from spherical coordinates
+    Inputs:
+        theta: zenith angle in radians
+        phi: azimuthal angle in radians
+    Outputs:
+        K: shower direction vector
+    """
+    st = np.sin(theta)
+    ct = np.cos(theta)
+    sp = np.sin(phi)
+    cp = np.cos(phi)
+
+    K = np.array([
+        -st * cp,
+        -st * sp,
+        -ct
+    ], dtype=np.float64)
+
+    return K
+
 # ============================ PWF ============================ #
 
 def PWF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray, peak_time_array: np.ndarray, file_path: str, n_max: int=None, verbose: bool=False) -> np.ndarray:
@@ -564,6 +585,93 @@ def recons_energy_from_voltage(amplitude: float, sin_alpha: float, a=1.96e7, b=7
     energy = np.maximum(energy, 0.0) * 1e18 
     return energy
 
+def compute_sin_alpha(theta_rad: np.ndarray, phi_rad: np.ndarray, B_field: np.ndarray = pr.B_vec) -> float:
+    """
+    Computes the sine of the geomagnetic angle between the shower axis and the geomagnetic field.
+    Parameters
+    ----------
+    theta_rad : float
+        Zenith angle of the shower in radians.
+    phi_rad : float
+        Azimuthal angle of the shower in radians.
+    B_field : np.ndarray
+        Array of shape (3,) representing the geomagnetic field unit vector.
+    Returns
+    -------
+    sin_alpha : float
+        Sine of the geomagnetic angle.
+    """
+
+    # Shower direction unit vector
+    K = build_K_vector(theta_rad, phi_rad)
+
+    # Geomagnetic field unit vector
+    sin_alpha = np.cross(K.T, B_field)
+    sin_alpha = np.linalg.norm(sin_alpha)
+    return sin_alpha
+
+def energy_uncertainty(amplitude:float, ampl_uncertainty:float, sin_alpha:float, a:float=1.96e7) -> float:
+    """
+    Computes the uncertainty on the reconstructed electromagnetic energy.
+    Parameters
+    ----------
+    amplitude : float
+        Scaling factor from the best-fit ADF (in ADC units).
+    ampl_uncertainty : float
+        Uncertainty on the amplitude (in ADC units).
+    sin_alpha : float
+        Sine of the geomagnetic angle between the shower axis and the geomagnetic field.
+    a : float
+        Slope parameter obtained from the fit on simulations (default: 1.96e7).
+    Returns
+    -------
+    energy_uncertainty : float
+        Uncertainty on the reconstructed electromagnetic energy in eV.
+    """
+
+    dE_dA = 1 / (a * sin_alpha) * 1e18  # derivative of energy w.r.t amplitude
+    energy_uncert = dE_dA * ampl_uncertainty
+    return energy_uncert
+
+def compute_energy_for_all(ADF_res: np.ndarray, CRB_res: np.ndarray, filepath: str, B_field: np.ndarray = pr.B_vec) -> np.ndarray:
+    """
+    Computes the reconstructed electromagnetic energy for all events based on ADF results. We neglect the uncertaintites on the angles here. First proxy only.
+    Parameters
+    ----------
+    ADF_res : np.ndarray
+        Array of shape (n_events, 4) containing ADF reconstruction results.
+        The 4 columns correspond to [theta_deg, phi_deg, dw, Amp].
+    B_field : np.ndarray
+        Array of shape (3,) representing the geomagnetic field unit vector.
+    Returns
+    -------
+    energies : np.ndarray
+        Array of shape (n_events,) containing the reconstructed electromagnetic energies in eV.
+    """
+
+    n_events = ADF_res.shape[0]
+    energies = np.zeros(n_events, dtype=np.float64)
+    energies_uncert = np.zeros(n_events, dtype=np.float64)
+    deg2rad = np.pi / 180.0
+    ampl_uncertainties = CRB_res[:, 7]
+
+    for i in range(n_events):
+        theta_rad = ADF_res[i, 0] * deg2rad
+        phi_rad = ADF_res[i, 1] * deg2rad
+
+        # Compute sin(alpha)
+        sin_alpha = compute_sin_alpha(theta_rad, phi_rad, B_field)
+
+        amplitude = ADF_res[i, 3]  # Amp from ADF results
+        energies[i] = recons_energy_from_voltage(amplitude, sin_alpha)
+        energies_uncert[i] = energy_uncertainty(amplitude, ampl_uncertainties[i], sin_alpha)
+
+
+    np.save(os.path.join(filepath, "energies.npy"),
+            {'energies': energies, 'uncertainties': energies_uncert, 'columns': ['energy_eV', 'energy_uncertainty_eV']}, allow_pickle=True)
+    
+    # return energies, energies_uncert
+
 
 # ======================= CRB of ADF + SWF ======================= #
 
@@ -830,12 +938,21 @@ def main():
         ADF_res = np.load(os.path.join(file_path, files["ADF"]), allow_pickle=True).item()['data']
         print("[ADF loaded]")
 
+    # --- Compute CRB ---
+
     print("\nComputing CRB for PWF...")
     PWF_CRB(ncoincs, nants, antenna_coords_array, PWF_res, file_path, n_max=n_max, verbose=verbose_bool)
 
-    print("\nComputing CRB for ADF + SWF...")
-    ADF_SWF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, n_max=n_max, verbose=verbose_bool)
+    # print("\nComputing CRB for ADF + SWF...")
+    # CRB_res = ADF_SWF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, n_max=n_max, verbose=verbose_bool)
 
+    # --- Compute energy estimates ---
+    print("\nComputing energy estimates from ADF results...")
+
+    CRB_res = np.load(os.path.join(file_path, "CRB_res.npy"), allow_pickle=True).item()['data']
+
+    compute_energy_for_all(ADF_res, CRB_res, file_path)
+    print("\nAll done.")
 
 if __name__ == "__main__":
     main()
