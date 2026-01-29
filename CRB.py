@@ -89,7 +89,7 @@ def npy_files_builder(file_path: str) -> None:
     np.save(file_path+"/co_antenna_coords_array.npy",co_ac)
     np.save(file_path+"/co_coinc_index_array.npy",co_ci)
     np.save(file_path+"/co_peak_time_array.npy",co_pt) # in m
-    np.save(file_path+"/co_peak_time_array_in_s.npy",co_pts)
+    np.save(file_path+"/co_peak_time_array_in_s.npy",co_pts) # in s
     np.save(file_path+"/co_peak_amp_array.npy",co_pa)
     pass
 
