@@ -88,11 +88,32 @@ def npy_files_builder(file_path: str) -> None:
     np.save(file_path+"/co_antenna_index_array.npy",co_ai)
     np.save(file_path+"/co_antenna_coords_array.npy",co_ac)
     np.save(file_path+"/co_coinc_index_array.npy",co_ci)
-    np.save(file_path+"/co_peak_time_array.npy",co_pt)
+    np.save(file_path+"/co_peak_time_array.npy",co_pt) # in m
     np.save(file_path+"/co_peak_time_array_in_s.npy",co_pts)
     np.save(file_path+"/co_peak_amp_array.npy",co_pa)
     pass
 
+def build_Xsource(alpha: float, beta: float, r_xmax: float) -> np.ndarray:
+    """ Build the source position vector Xsource from spherical coordinates
+    Inputs:
+        alpha: zenith angle in radians
+        beta: azimuthal angle in radians
+        r_xmax: distance to the source in meters
+    Outputs:
+        Xsource: source position vector in meters
+    """
+    ca = np.cos(alpha)
+    sa = np.sin(alpha)
+    cb = np.cos(beta)
+    sb = np.sin(beta)
+
+    Xsource = np.array([
+        r_xmax * sa * cb,
+        r_xmax * sa * sb,
+        pr.groundAltitude + r_xmax * ca
+    ], dtype=np.float64)
+
+    return Xsource
 
 # ============================ PWF ============================ #
 
@@ -181,6 +202,7 @@ def SWF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray
                     print(f"  alpha : {PWF_guess[0]*rad2deg:10.2f}°   → {alpha_SWF_deg:10.2f}°")
                     print(f"  beta  : {PWF_guess[1]*rad2deg:10.2f}°   → {beta_SWF_deg:10.2f}°")
                     print(f"  rxmax :{PWF_guess[2]/1e3:10.2f} km  →{rxmax_SWF/1e3:10.2f} km")
+                    print(f"  t0    :{PWF_guess[3]:10.2e} s   →{resu.x[3]:10.2e} s")
 
                 SWF_res[i,0] = alpha_SWF_deg
                 SWF_res[i,1] = beta_SWF_deg
@@ -581,18 +603,13 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
         adf_rad[0] *= deg2rad
         adf_rad[1] *= deg2rad
 
-        ca, sa, cb, sb = np.cos(swf_rad[0]), np.sin(swf_rad[0]), np.cos(swf_rad[1]), np.sin(swf_rad[1])
-        rxmax = swf_rad[2]
-        
-        X_max      = np.array([rxmax * sa * cb,
-                               rxmax * sa * sb,
-                               pr.groundAltitude + rxmax * ca], dtype=np.float64)
+        Xsource = build_Xsource(swf_rad[0], swf_rad[1], swf_rad[2])
         
         params = np.hstack((swf_rad, adf_rad))
         fisher_mat = np.zeros((8,8))
 
         # Calcul des dérivées pour tous les paramètres
-        h = 1e-6 * (np.abs(params))
+        h = 1e-6 * (np.abs(params)) ; h[3] = 1e-9
         derivates_ampl = np.zeros((n_ants, 8))
         derivates_time = np.zeros((n_ants, 8))
 
@@ -610,36 +627,22 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
 
             # Reconstruction of Xmax for perturbed SWF parameters
             # Plus
-            cap, sap, cbp, sbp = np.cos(swf_params_plus[0]), np.sin(swf_params_plus[0]), np.cos(swf_params_plus[1]), np.sin(swf_params_plus[1])
-            rxmax_p = swf_params_plus[2]
-            X_max_plus = np.array([rxmax_p * sap * cbp,
-                                   rxmax_p * sap * sbp,
-                                   pr.groundAltitude + rxmax_p * cap], dtype=np.float64)
+            X_max_plus = build_Xsource(swf_params_plus[0], swf_params_plus[1], swf_params_plus[2])
+            X_max_minus = build_Xsource(swf_params_minus[0], swf_params_minus[1], swf_params_minus[2])
             
-            # Minus
-            cam, sam, cbm, sbm = np.cos(swf_params_minus[0]), np.sin(swf_params_minus[0]), np.cos(swf_params_minus[1]), np.sin(swf_params_minus[1])
-            rxmax_m = swf_params_minus[2]
-            X_max_minus = np.array([rxmax_m * sam * cbm,
-                                    rxmax_m * sam * sbm,
-                                    pr.groundAltitude + rxmax_m * cam], dtype=np.float64)
-            
-            pred_plus_ampl  = ADF_3D_model(adf_params_plus, ant_coords, X_max_plus)
-            pred_plus_time  = SWF_model(swf_params_plus, ant_coords)
+            pred_plus_ampl  = ADF_3D_model(adf_params_plus, ant_coords, X_max_plus) # in mV
+            pred_plus_time  = SWF_model(swf_params_plus, ant_coords) # in s
 
-            pred_minus_ampl  = ADF_3D_model(adf_params_minus, ant_coords, X_max_minus)
-            pred_minus_time  = SWF_model(swf_params_minus, ant_coords)
+            pred_minus_ampl  = ADF_3D_model(adf_params_minus, ant_coords, X_max_minus) # in mV
+            pred_minus_time  = SWF_model(swf_params_minus, ant_coords) # in s
             
             # Dérivée
             derivates_ampl[:, i] = (pred_plus_ampl - pred_minus_ampl) / (2 * h[i])
             derivates_time[:, i] = (pred_plus_time - pred_minus_time) / (2 * h[i])
         
-        sigma_amp = 0.075 * abs(ADF_3D_model(adf_rad, ant_coords, X_max))  # 7.5% amplitude uncertainty in mV
+        sigma_amp = 0.075 * abs(ADF_3D_model(adf_rad, ant_coords, Xsource))  # 7.5% amplitude uncertainty in mV
         sigma_amp = [ (sigma_amp[i]**2 + pr.galactic_noise_floor**2)**0.5 for i in range(n_ants)]  # Fixed minimum amplitude uncertainty in mV
-        sigma_time = pr.jitter_time  # Fixed time uncertainty in seconds
-
-        if args.filepath == 'test_NJ' or args.filepath == 'NJ_star':
-            sigma_time = 1.0  # for NJ_star simulations only
-            sigma_amp = np.full(n_ants, 1.0)  # for NJ_star simulations only
+        sigma_time = (pr.jitter_time) # Fixed time uncertainty in s
             
         for k in range(n_ants):
             fisher_mat += np.outer(derivates_ampl[k,:], derivates_ampl[k,:]) / (sigma_amp[k]**2)
@@ -649,13 +652,13 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
             cov_mat = np.linalg.inv(fisher_mat)
             stds[current_recons, :] = np.sqrt(np.diag(cov_mat)) # Écarts-types
             if np.any(np.isnan(stds[current_recons, :])) or np.any(np.isinf(stds[current_recons, :])):
-                if verbose and 2<1:
+                if verbose and 0<1:
                     print(f"Fisher matrix inversion NaN of Inf for coinc {current_recons}.")
-                    print(fisher_mat)
+                    # print(fisher_mat)
                 stds[current_recons, :] = np.nan
                 cpt += 1
         except np.linalg.LinAlgError:
-            if verbose and 2<1:
+            if verbose and 0<1:
                 print(f"Fisher matrix is singular for coinc {current_recons}.")
                 print(fisher_mat)
             stds[current_recons, :] = np.nan
@@ -669,7 +672,7 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
     if verbose and 1<2:
         print(f"Stds for first 20 coincidences:")
         for j in range(min(20, n_to_process)):
-            print(f"\n\n[Coincidence {j}] \nstd_alpha={stds[j,0]:.4e}°, \nstd_beta={stds[j,1]:.4e}°, \nstd_rxmax={stds[j,2]/1e3:.4e} km, \nstd_t0={stds[j,3]*1e-9:.4e} s, \nstd_theta={stds[j,4]:.4e}°, \nstd_phi={stds[j,5]:.4e}°, \nstd_dw={stds[j,6]:.4e}, \nstd_Amp={stds[j,7]:.4e}")
+            print(f"\n\n[Coincidence {j}] \nstd_alpha={stds[j,0]:.4e}°, \nstd_beta={stds[j,1]:.4e}°, \nstd_rxmax={stds[j,2]/1e3:.4e} km, \nstd_t0={stds[j,3]:.4e}, \nstd_theta={stds[j,4]:.4e}°, \nstd_phi={stds[j,5]:.4e}°, \nstd_dw={stds[j,6]:.4e}, \nstd_Amp={stds[j,7]:.4e}")
         print(f"Percentage of singular matrices: {100.0 * cpt / n_to_process:.2f}%")
         
     print(f"\n[{time.time()-t0:.3f}s] ADF + SWF CRB done for {n_to_process} coincidences with {cpt} singular matrices")
@@ -710,7 +713,7 @@ def PWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, PWF_re
             # Dérivée
             derivates_time[:, i] = (pred_plus_time - pred_minus_time) / (2 * h[i])
 
-        sigma_time = 5.0  # Fixed time uncertainty in ns
+        sigma_time = pr.jitter_time * pr.c_light # Fixed time uncertainty in ns
         for k in range(n_ants):
             fisher_mat += np.outer(derivates_time[k,:], derivates_time[k,:]) / (sigma_time**2)
 
@@ -767,12 +770,14 @@ def main():
     print("\nLoading coincidence data...")
     nants                =     np.load(os.path.join(file_path,'co_nants.npy'))
     antenna_coords_array =     np.load(os.path.join(file_path,'co_antenna_coords_array.npy'))
-    peak_time_array      =     np.load(os.path.join(file_path,'co_peak_time_array.npy'))
+    peak_time_array_m    =     np.load(os.path.join(file_path,'co_peak_time_array.npy'))
+    peak_time_array_s    =     np.load(os.path.join(file_path,'co_peak_time_array_in_s.npy'))
     peak_amp_array       =     np.load(os.path.join(file_path,'co_peak_amp_array.npy'))
     ncoincs              = int(np.load(os.path.join(file_path,'co_ncoincs.npy'))[0])
     # convert in float32 and int32 for faster processing
     antenna_coords_array = antenna_coords_array.astype(np.float64)
-    peak_time_array      = peak_time_array.astype(np.float64)
+    peak_time_array_m     = peak_time_array_m.astype(np.float64)
+    peak_time_array_s     = peak_time_array_s.astype(np.float64)
     peak_amp_array       = peak_amp_array.astype(np.float64)
     nants                = nants.astype(np.int32)
     n_to_process = min(ncoincs, n_max) if args.nmax is not None else ncoincs
@@ -798,7 +803,7 @@ def main():
 
     # --- Load or compute PWF ---
     print("\nComputing PWF...") 
-    PWF_res = PWF_recons(ncoincs, nants, antenna_coords_array, peak_time_array, file_path, n_max=n_max, verbose=verbose_bool)
+    PWF_res = PWF_recons(ncoincs, nants, antenna_coords_array, peak_time_array_m, file_path, n_max=n_max, verbose=verbose_bool)
     print("[PWF Computed]")
 
     # --- Load or compute SWF ---
@@ -806,9 +811,9 @@ def main():
     if run_SWF:
         if multi_processing:
             print(f"[MULTIPROCESSING] {n_to_process} SWF reconstruction with {mp.cpu_count()-1} CPUs...")
-            SWF_res = SWF_recons_mp(ncoincs, nants, antenna_coords_array, peak_time_array, PWF_res, file_path, verbose=verbose_bool, n_max=n_max)
+            SWF_res = SWF_recons_mp(ncoincs, nants, antenna_coords_array, peak_time_array_s, PWF_res, file_path, verbose=verbose_bool, n_max=n_max)
         else:
-            SWF_res = SWF_recons(ncoincs, nants, antenna_coords_array, peak_time_array, PWF_res, file_path, verbose=verbose_bool, n_max=n_max)
+            SWF_res = SWF_recons(ncoincs, nants, antenna_coords_array, peak_time_array_s, PWF_res, file_path, verbose=verbose_bool, n_max=n_max)
     else:
         SWF_res = np.load(os.path.join(file_path, files["SWF"]), allow_pickle=True).item()['data']
         print("[SWF loaded]")

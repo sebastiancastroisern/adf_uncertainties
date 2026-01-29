@@ -312,7 +312,7 @@ def PWF_loss(params: np.ndarray, Xants: np.ndarray, tants: np.ndarray, verbose: 
     where:
     params=(theta, phi): spherical coordinates of unit shower direction vector K
     Xants are the antenna positions (shape=(nants, 3))
-    tants are the antenna arrival times of the wavefront (trigger time, shape=(nants, ))
+    tants are the antenna arrival times of the wavefront (trigger time, shape=(nants, )) in m
     cr is radiation speed, by default 1 since time is expressed in m.
     r'''
 
@@ -390,7 +390,7 @@ def PWF_model(params: np.ndarray, Xants: np.ndarray) -> np.ndarray:
     ct = np.cos(theta); st = np.sin(theta); cp = np.cos(phi); sp=np.sin(phi)
     K = np.array([-st*cp,-st*sp,-ct], dtype=np.float64)
     dX = Xants - np.array([0.,0.,pr.groundAltitude], dtype=np.float64)
-    tants = np.dot(dX,K) / pr.cr 
+    tants = np.dot(dX,K)
  
     return (tants)
 
@@ -429,7 +429,7 @@ def SWF_model(params: np.ndarray, Xants: np.ndarray) -> np.ndarray:
     for i in range(nants):
         n_average = ZHSEffectiveRefractionIndex(Xmax, Xants[i, :])
         dX = Xants[i, :] - Xmax
-        tants[i] = t_s + n_average / pr.cr * np.linalg.norm(dX)
+        tants[i] = t_s + n_average * np.linalg.norm(dX) / pr.c_light
 
     return (tants)
 
@@ -451,7 +451,7 @@ def SWF_loss(params: np.ndarray, Xants: np.ndarray, tants: np.ndarray, ndof: boo
     Xants : array (nants, 3)
         Antenna positions.
     tants : array (nants,)
-        Trigger times.
+        Trigger times in s.
     params : (alpha, beta, r_xmax, t_s)
         Source parameters: direction (alpha, beta), distance r_xmax,
         and emission time t_s.
@@ -469,7 +469,7 @@ def SWF_loss(params: np.ndarray, Xants: np.ndarray, tants: np.ndarray, ndof: boo
     # Calcul de K
     ca = np.cos(alpha); sa = np.sin(alpha); cb = np.cos(beta); sb = np.sin(beta)
     K = np.array([-sa*cb,-sa*sb,-ca], dtype=np.float64) # minus direction of the Xmax position vector
-    sigma_t = pr.jitter_time * pr.c_light  # Convert ns to meters
+    sigma_t = pr.jitter_time  # in s
 
     # Calcul de la position de X_max
     Xmax = -r_xmax * K + np.array([0.,0.,pr.groundAltitude], dtype=np.float64) # Xmax is in the opposite direction to K
@@ -481,7 +481,7 @@ def SWF_loss(params: np.ndarray, Xants: np.ndarray, tants: np.ndarray, ndof: boo
         dX = Xants[i,:] - Xmax # Vector between Xmax and antenna i
 
         # Spherical wave front chi2 calculation
-        res = pr.cr*(tants[i]-t_s) - n_average*np.linalg.norm(dX)
+        res = (tants[i]-t_s) - n_average*np.linalg.norm(dX) / pr.c_light
         tmp += (res/sigma_t) **2
 
     if ndof:
