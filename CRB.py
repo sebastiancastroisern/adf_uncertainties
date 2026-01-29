@@ -943,8 +943,8 @@ def main():
     print("\nComputing CRB for PWF...")
     PWF_CRB(ncoincs, nants, antenna_coords_array, PWF_res, file_path, n_max=n_max, verbose=verbose_bool)
 
-    # print("\nComputing CRB for ADF + SWF...")
-    # CRB_res = ADF_SWF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, n_max=n_max, verbose=verbose_bool)
+    print("\nComputing CRB for ADF + SWF...")
+    CRB_res = ADF_SWF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, n_max=n_max, verbose=verbose_bool)
 
     # --- Compute energy estimates ---
     print("\nComputing energy estimates from ADF results...")
