@@ -9,6 +9,9 @@ c_light = 2.997924580e8 # m/s
 R_earth = 6371007.0     # m
 groundAltitude = 1264.0 # m
 
+# # For the NJ simulations
+# groundAltitude = 1086.0 # m
+
 # ======================
 # Atmospheric model
 # ======================
@@ -40,7 +43,7 @@ B_vec_norm = np.array([
 
 B_vec = B_vec_norm * modulus * 1e-6  # en T (tesla)
 
-# # For the no-noise simulation
+# # For the NJ simulation
 # B_dec = 0.
 # B_inc = np.pi/2. + 1.0609856522873529
 # # Magnetic field direction (unit) vector
