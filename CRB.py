@@ -3,14 +3,14 @@ import os
 import time
 import argparse
 import numpy           as np
-import params_config   as pr
 import pandas          as pd
 import multiprocessing as mp
-from wavefronts_SEB  import *
+import wavefronts.params_config as pr
 from tqdm            import tqdm
 from typing          import Tuple
 from iminuit         import minimize
 from scipy.optimize  import differential_evolution
+from wavefronts.wavefronts_SEB import *
 
 # argparse setup
 parser = argparse.ArgumentParser(description='Cramer-Rao Bound computation for radio-detected air showers')
@@ -585,7 +585,7 @@ def recons_energy_from_voltage(amplitude: float, sin_alpha: float, a=1.96e7, b=7
     energy = np.maximum(energy, 0.0) * 1e18 
     return energy
 
-def compute_sin_alpha(theta_rad: np.ndarray, phi_rad: np.ndarray, B_field: np.ndarray = pr.B_vec) -> float:
+def compute_sin_alpha(theta_rad: np.ndarray, phi_rad: np.ndarray, B_field: np.ndarray = pr.B_vec_norm) -> float:
     """
     Computes the sine of the geomagnetic angle between the shower axis and the geomagnetic field.
     Parameters
@@ -633,7 +633,7 @@ def energy_uncertainty(amplitude:float, ampl_uncertainty:float, sin_alpha:float,
     energy_uncert = dE_dA * ampl_uncertainty
     return energy_uncert
 
-def compute_energy_for_all(ADF_res: np.ndarray, CRB_res: np.ndarray, filepath: str, B_field: np.ndarray = pr.B_vec) -> np.ndarray:
+def compute_energy_for_all(ADF_res: np.ndarray, CRB_res: np.ndarray, filepath: str, B_field: np.ndarray = pr.B_vec_norm) -> np.ndarray:
     """
     Computes the reconstructed electromagnetic energy for all events based on ADF results. We neglect the uncertaintites on the angles here. First proxy only.
     Parameters

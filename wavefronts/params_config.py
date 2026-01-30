@@ -22,14 +22,21 @@ h0 = 8_000.0  # m
 # Magnetic field
 # ======================
 
-B_dec = 0.0
-B_inc = np.pi / 2.0 + 1.0609856522873529
+modulus = 56.482  # uT (microtesla)
+B_inc = 61.6  # degrés
+B_dec = 0.1253  # degrés
 
-B_vec = np.array([
+B_vec_norm = np.array([
     np.sin(B_inc) * np.cos(B_dec),
     np.sin(B_inc) * np.sin(B_dec),
     np.cos(B_inc),
-])
+]) / np.linalg.norm(np.array([
+    np.sin(B_inc) * np.cos(B_dec),
+    np.sin(B_inc) * np.sin(B_dec),
+    np.cos(B_inc),
+]))
+
+B_vec = B_vec_norm * modulus * 1e-6  # en T (tesla)
 
 # ======================
 # Noise / detector

@@ -6,15 +6,15 @@ import emcee
 import corner
 import argparse
 import numpy             as np
-import params_config     as pr
 import matplotlib.pyplot as plt
+import wavefronts.params_config as pr
 from typing          import *
-from wavefronts_SEB  import *
 from numba           import njit
 from tqdm            import tqdm
 from numpy.linalg    import cond
 from multiprocessing import Pool, cpu_count
 from emcee.moves     import DEMove, DESnookerMove, KDEMove, StretchMove
+from wavefronts.wavefronts_SEB  import *
 
 # Patch temporaire pour la compatibilité NumPy 2.0
 if not hasattr(np, 'infty'):
