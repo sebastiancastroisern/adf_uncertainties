@@ -4,7 +4,7 @@ from scipy.spatial.transform import Rotation as R
 from solver import newton
 from rotation import rotation
 from scipy.optimize import brentq
-import params_config as pr
+import wavefronts.params_config as pr
 
 kwd = {"fastmath": {"reassoc", "contract", "arcp"}}
 
