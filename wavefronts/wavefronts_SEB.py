@@ -1,8 +1,8 @@
 import numpy as np
 from numba import njit, float64, prange
 from scipy.spatial.transform import Rotation as R
-from solver import newton
-from rotation import rotation
+from wavefronts.solver import newton
+from wavefronts.rotation import rotation
 from scipy.optimize import brentq
 import wavefronts.params_config as pr
 
@@ -708,7 +708,7 @@ def ADF_loss(params: np.ndarray, Aants: np.ndarray, Xants: np.ndarray, Xmax: np.
     # Loop on antennas. Here no precomputation table is possible for Cerenkov angle computation.
     # Calculation needs to be done for each antenna.
     tmp = 0. # Initialize chi2
-    uncertainties = ((0.075 * np.abs(Aants))**2 + pr.galactic_noise_floor**2)**0.5
+    uncertainties = ((pr.amplitude_uncertainty * np.abs(Aants))**2 + pr.galactic_noise_floor**2)**0.5
 
     for i in range(nants):
         

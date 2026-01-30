@@ -1,11 +1,13 @@
 # Imports
 import os
 import time
+import pickle
 import argparse
 import numpy           as np
 import pandas          as pd
 import multiprocessing as mp
-import wavefronts.params_config as pr
+import wavefronts.params_config       as pr
+import MCEq.geometry.density_profiles as dp
 from tqdm            import tqdm
 from typing          import Tuple
 from iminuit         import minimize
@@ -556,7 +558,7 @@ def ADF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndar
 
 # ======================= Energy reconstruction ======================= #
 
-def recons_energy_from_voltage(amplitude: float, sin_alpha: float, a=1.96e7, b=7.90e6) -> float:
+def proxy_Em_recons(amplitude: float, sin_alpha: float, a=1.96e7, b=7.90e6) -> float:
     """
     Reconstructs the electromagnetic energy from the measured radio signal amplitude in ADC counts.
     Just a first proxy
@@ -585,22 +587,48 @@ def recons_energy_from_voltage(amplitude: float, sin_alpha: float, a=1.96e7, b=7
     energy = np.maximum(energy, 0.0) * 1e18 
     return energy
 
+def read_corrections_pkl(filepath: str) -> dict:
+    """ Reads the corrections from a pickle file """
+
+    with open(filepath, 'rb') as f:
+        corrections = pickle.load(f)
+
+    return corrections
+
+def compute_altitude_Xsource(SWF_res: np.ndarray) -> np.ndarray:
+    """ Computes the altitude of Xsource in centimeters from SWF results in radians. """
+
+    Xsource = build_Xsource(SWF_res[0], SWF_res[1], SWF_res[2])
+    R_2 = Xsource[0]**2 + Xsource[1]**2
+
+    return (np.sqrt( R_2 + (Xsource[2] + pr.R_earth)**2 ) - pr.R_earth) * 1e2  # in cm
+
+def energy_recons(ADF_rad: np.ndarray, SWF_rad: np.ndarray, poly_features, linreg_model) -> float:
+    """ Computes the enrgy reconstruciotn for a single event based on ADF results. ADF, SWF in rad."""
+
+    
+    theta_rad = ADF_rad[0]  
+    phi_rad = ADF_rad[1] 
+
+    sin_alpha = compute_sin_alpha(theta_rad, phi_rad)
+    Xsource_alt_cm = compute_altitude_Xsource(SWF_rad)  
+    Xsource_alt_m = Xsource_alt_cm * 1e-2  # in m
+    std_atm = dp.CorsikaAtmosphere('USStd')
+    rho_Xsource_g_cm3 = std_atm.get_density(Xsource_alt_cm)  # in g/cm^3
+    rho_Xsource_kg_m3 = rho_Xsource_g_cm3 * 1e3  # in kg/m^3
+
+    features = np.column_stack([sin_alpha, rho_Xsource_kg_m3])
+    features_poly = poly_features.transform(features)
+    A_norm_pred = linreg_model.predict(features_poly)
+
+    amplitude = ADF_rad[3]
+
+    energy = amplitude / (A_norm_pred[0] * sin_alpha) 
+
+    return energy * 1e18  # convert to eV
+
 def compute_sin_alpha(theta_rad: np.ndarray, phi_rad: np.ndarray, B_field: np.ndarray = pr.B_vec_norm) -> float:
-    """
-    Computes the sine of the geomagnetic angle between the shower axis and the geomagnetic field.
-    Parameters
-    ----------
-    theta_rad : float
-        Zenith angle of the shower in radians.
-    phi_rad : float
-        Azimuthal angle of the shower in radians.
-    B_field : np.ndarray
-        Array of shape (3,) representing the geomagnetic field unit vector.
-    Returns
-    -------
-    sin_alpha : float
-        Sine of the geomagnetic angle.
-    """
+    """ Computes the sine of the geomagnetic angle between the shower axis and the geomagnetic field. """
 
     # Shower direction unit vector
     K = build_K_vector(theta_rad, phi_rad)
@@ -610,7 +638,7 @@ def compute_sin_alpha(theta_rad: np.ndarray, phi_rad: np.ndarray, B_field: np.nd
     sin_alpha = np.linalg.norm(sin_alpha)
     return sin_alpha
 
-def energy_uncertainty(amplitude:float, ampl_uncertainty:float, sin_alpha:float, a:float=1.96e7) -> float:
+def energy_uncertainty(ampl_uncertainty:float, sin_alpha:float, a:float=1.96e7) -> float:
     """
     Computes the uncertainty on the reconstructed electromagnetic energy.
     Parameters
@@ -633,7 +661,7 @@ def energy_uncertainty(amplitude:float, ampl_uncertainty:float, sin_alpha:float,
     energy_uncert = dE_dA * ampl_uncertainty
     return energy_uncert
 
-def compute_energy_for_all(ADF_res: np.ndarray, CRB_res: np.ndarray, filepath: str, B_field: np.ndarray = pr.B_vec_norm) -> np.ndarray:
+def compute_energy_for_all(ADF_res: np.ndarray, SWF_res: np.ndarray, CRB_res: np.ndarray, output_path: str, pickle_file: str = pr.pickle_file, B_field: np.ndarray = pr.B_vec_norm, verbose:bool=False) -> np.ndarray:
     """
     Computes the reconstructed electromagnetic energy for all events based on ADF results. We neglect the uncertaintites on the angles here. First proxy only.
     Parameters
@@ -641,6 +669,16 @@ def compute_energy_for_all(ADF_res: np.ndarray, CRB_res: np.ndarray, filepath: s
     ADF_res : np.ndarray
         Array of shape (n_events, 4) containing ADF reconstruction results.
         The 4 columns correspond to [theta_deg, phi_deg, dw, Amp].
+    SWF_res : np.ndarray
+        Array of shape (n_events, 4) containing SWF reconstruction results.
+        The 4 columns correspond to [alpha_deg, beta_deg, rxmax, t0].
+    CRB_res : np.ndarray
+        Array of shape (n_events, 8) containing CRB results for ADF reconstruction.
+        The 8 columns correspond to the standard deviations of the parameters [theta_deg, phi_deg, dw, Amp, x_core, y_core, z_core, time_offset].
+    output_path : str
+        Path to save the results.
+    pickle_file : str
+        Name of the pickle file with the corrections coefficientes.
     B_field : np.ndarray
         Array of shape (3,) representing the geomagnetic field unit vector.
     Returns
@@ -655,19 +693,28 @@ def compute_energy_for_all(ADF_res: np.ndarray, CRB_res: np.ndarray, filepath: s
     deg2rad = np.pi / 180.0
     ampl_uncertainties = CRB_res[:, 7]
 
+    ADF_rad = ADF_res.copy()
+    ADF_rad[:, :2] *= deg2rad  # Convert angles to radians
+    SWF_rad = SWF_res.copy()
+    SWF_rad[:, :2] *= deg2rad  # Convert angles to radians
+
+    corrections = read_corrections_pkl(pickle_file)
+    poly_features = corrections['poly_features']
+    linreg_model = corrections['linreg_model']
+    
+
     for i in range(n_events):
-        theta_rad = ADF_res[i, 0] * deg2rad
-        phi_rad = ADF_res[i, 1] * deg2rad
 
         # Compute sin(alpha)
-        sin_alpha = compute_sin_alpha(theta_rad, phi_rad, B_field)
+        sin_alpha = compute_sin_alpha(ADF_rad[i, 0], ADF_rad[i, 1], B_field)
 
-        amplitude = ADF_res[i, 3]  # Amp from ADF results
-        energies[i] = recons_energy_from_voltage(amplitude, sin_alpha)
-        energies_uncert[i] = energy_uncertainty(amplitude, ampl_uncertainties[i], sin_alpha)
+        # Compute energy and its uncertainty
+        energies[i] = energy_recons(ADF_rad[i,:], SWF_rad[i,:], poly_features, linreg_model)
+        energies_uncert[i] = energy_uncertainty(ampl_uncertainties[i], sin_alpha)
+        if verbose : 
+            print(f"Event {i}: Energy = {energies[i]:.2e} eV ± {energies_uncert[i]:.2e} eV")
 
-
-    np.save(os.path.join(filepath, "energies.npy"),
+    np.save(os.path.join(output_path, "energies.npy"),
             {'energies': energies, 'uncertainties': energies_uncert, 'columns': ['energy_eV', 'energy_uncertainty_eV']}, allow_pickle=True)
     
     # return energies, energies_uncert
@@ -748,7 +795,7 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
             derivates_ampl[:, i] = (pred_plus_ampl - pred_minus_ampl) / (2 * h[i])
             derivates_time[:, i] = (pred_plus_time - pred_minus_time) / (2 * h[i])
         
-        sigma_amp = 0.075 * abs(ADF_3D_model(adf_rad, ant_coords, Xsource))  # 7.5% amplitude uncertainty in mV
+        sigma_amp = pr.amplitude_uncertainty * abs(ADF_3D_model(adf_rad, ant_coords, Xsource))  # 7.5% amplitude uncertainty in mV
         sigma_amp = [ (sigma_amp[i]**2 + pr.galactic_noise_floor**2)**0.5 for i in range(n_ants)]  # Fixed minimum amplitude uncertainty in mV
         sigma_time = (pr.jitter_time) # Fixed time uncertainty in s
             
@@ -951,7 +998,7 @@ def main():
 
     CRB_res = np.load(os.path.join(file_path, "CRB_res.npy"), allow_pickle=True).item()['data']
 
-    compute_energy_for_all(ADF_res, CRB_res, file_path)
+    compute_energy_for_all(ADF_res, SWF_res, CRB_res, file_path, verbose=verbose_bool)
     print("\nAll done.")
 
 if __name__ == "__main__":

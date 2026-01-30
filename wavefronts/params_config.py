@@ -9,7 +9,7 @@ c_light = 2.997924580e8 # m/s
 R_earth = 6371007.0     # m
 groundAltitude = 1264.0 # m
 
-# # For the NJ simulations
+# # # For the NJ simulations
 # groundAltitude = 1086.0 # m
 
 # ======================
@@ -43,7 +43,7 @@ B_vec_norm = np.array([
 
 B_vec = B_vec_norm * modulus * 1e-6  # en T (tesla)
 
-# # For the NJ simulation
+# # # For the NJ simulation
 # B_dec = 0.
 # B_inc = np.pi/2. + 1.0609856522873529
 # # Magnetic field direction (unit) vector
@@ -60,12 +60,21 @@ jitter_time = 5e-9                # s
 galactic_noise_floor = 8.0        # µV (aucune idée j'ai pas vérifié)
 assym_coeff = 0.01
 cr = 1.0
+amplitude_uncertainty = 0.075  # relative uncertainty on amplitude measurement
+
+# # For the NJ simulation
+# jitter_time = 1e-9                # s
+# galactic_noise_floor = 0.0        # µV (aucune idée j'ai pas vérifié)
+# assym_coeff = 0.01
+# cr = 1.0
+# amplitude_uncertainty = 0.1  # relative uncertainty on amplitude measurement
 
 # ======================
 # Interpolation
 # ======================
 
 n_omega_cr = 20
+pickle_file = "wavefronts/correction_coefficients.pkl"
 
 # ======================
 # Bounds (single source of truth)
