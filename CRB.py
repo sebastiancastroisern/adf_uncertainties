@@ -1,11 +1,14 @@
 # Imports
 import os
+import jax
 import time
 import pickle
 import argparse
 import numpy           as np
 import pandas          as pd
+import jax.numpy       as jnp
 import multiprocessing as mp
+import wavefronts.energy_jax          as ej
 import wavefronts.params_config       as pr
 import MCEq.geometry.density_profiles as dp
 from tqdm            import tqdm
@@ -18,11 +21,12 @@ from wavefronts.wavefronts_SEB import *
 parser = argparse.ArgumentParser(description='Cramer-Rao Bound computation for radio-detected air showers')
 parser.add_argument('--nmax'     , type=int, default=None, help='Maximum number of coincidences to process')
 parser.add_argument('--filepath', type=str, default='./test_NJ/', help='Path to the input data files') # other exemple './addednoise_110uV_5antennas/'
-parser.add_argument('--test'  , action='store_true', help='Run all computes in test mode with a small dataset')
-parser.add_argument('--tout'  , action='store_true', help='Run all reconstructions and CRB computations')
-parser.add_argument('--gen', action='store_true', help='Regenerate .npy files from text data')
+parser.add_argument('--test'   , action='store_true', help='Run all computes in test mode with a small dataset')
+parser.add_argument('--tout'   , action='store_true', help='Run all reconstructions and CRB computations')
+parser.add_argument('--gen'    , action='store_true', help='Regenerate .npy files from text data')
 parser.add_argument('--verbose', action='store_true', help='Enable verbose output during reconstructions')
-parser.add_argument('--multi', action='store_true', help='Enable multiprocessing for SWF reconstructions')
+parser.add_argument('--multi'  , action='store_true', help='Enable multiprocessing for SWF reconstructions')
+parser.add_argument('--savemat', action='store_false', help='Save Fisher information matrices as .npy files')
 args = parser.parse_args()
 
 # Numpy compatibility
@@ -558,171 +562,101 @@ def ADF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndar
 
 # ======================= Energy reconstruction ======================= #
 
-def proxy_Em_recons(amplitude: float, sin_alpha: float, a=1.96e7, b=7.90e6) -> float:
-    """
-    Reconstructs the electromagnetic energy from the measured radio signal amplitude in ADC counts.
-    Just a first proxy
-    Parameters
-    ----------
-    amplitude : float or array-like
-        Scaling factor from the best-fit ADF (in ADC units).
-    sin_alpha : float or array-like
-        Sine of the geomagnetic angle between the shower axis and the geomagnetic field.
-    a : float
-        Slope parameter obtained from the fit on simulations (default: 1.96e7).
-    b : float
-        Offset parameter obtained from the fit on simulations (default: 7.90e6).
-    See arXiv:2507.04324 for details on how the values of a and b are determined.
-    Returns
-    -------
-    energy : float or array-like
-        Reconstructed electromagnetic energy in eV.
-        Events yielding negative reconstructed energies are set to zero.
-        Such cases may correspond to genuine cosmic-ray events for which the
-        voltage-based energy proxy fails, as this reconstruction is not very robust
-        and should only be interpreted as a first-order estimator.
-    """
-
-    energy = (amplitude / sin_alpha - b) / a   
-    energy = np.maximum(energy, 0.0) * 1e18 
-    return energy
-
-def read_corrections_pkl(filepath: str) -> dict:
-    """ Reads the corrections from a pickle file """
-
-    with open(filepath, 'rb') as f:
-        corrections = pickle.load(f)
-
-    return corrections
-
-def compute_altitude_Xsource(SWF_res: np.ndarray) -> np.ndarray:
-    """ Computes the altitude of Xsource in centimeters from SWF results in radians. """
-
-    Xsource = build_Xsource(SWF_res[0], SWF_res[1], SWF_res[2])
-    R_2 = Xsource[0]**2 + Xsource[1]**2
-
-    return (np.sqrt( R_2 + (Xsource[2] + pr.R_earth)**2 ) - pr.R_earth) * 1e2  # in cm
-
-def energy_recons(ADF_rad: np.ndarray, SWF_rad: np.ndarray, poly_features, linreg_model) -> float:
-    """ Computes the enrgy reconstruciotn for a single event based on ADF results. ADF, SWF in rad."""
-
+def recons_energy_all_cov(ncoincs: int, ADF_deg: np.ndarray, SWF_deg: np.ndarray, cov_mats: np.ndarray, output_path: str, csv_file_path: str=pr.csv_coeff_corr, verbose: bool=False, n_max: int=None) -> np.ndarray:
+    """ Function reconstructing the energy for all coincidences
+    Inputs:
+        ncoincs: number of coincidences
+        ADF_res: dictionary containing ADF reconstruction results (in degrees)
+        SWF_res: dictionary containing SWF reconstruction results (in degrees)
+        file_path: path to save the results
+        n_max: maximum number of coincidences to process
+        verbose: boolean for verbosity
+        csv_file_path: path to the CSV file containing the correction coefficients
+    Outputs:
+        energies: array of reconstructed energies per coincidence in eV
+        energies_uncertainty: array of uncertainties of reconstructed energies per coincidence in eV """
     
-    theta_rad = ADF_rad[0]  
-    phi_rad = ADF_rad[1] 
+    if n_max is not None:
+        ncoincs = min(ncoincs, n_max)
 
-    sin_alpha = compute_sin_alpha(theta_rad, phi_rad)
-    Xsource_alt_cm = compute_altitude_Xsource(SWF_rad)  
-    Xsource_alt_m = Xsource_alt_cm * 1e-2  # in m
-    std_atm = dp.CorsikaAtmosphere('USStd')
-    rho_Xsource_g_cm3 = std_atm.get_density(Xsource_alt_cm)  # in g/cm^3
-    rho_Xsource_kg_m3 = rho_Xsource_g_cm3 * 1e3  # in kg/m^3
-
-    features = np.column_stack([sin_alpha, rho_Xsource_kg_m3])
-    features_poly = poly_features.transform(features)
-    A_norm_pred = linreg_model.predict(features_poly)
-
-    amplitude = ADF_rad[3]
-
-    energy = amplitude / (A_norm_pred[0] * sin_alpha) 
-
-    return energy * 1e18  # convert to eV
-
-def compute_sin_alpha(theta_rad: np.ndarray, phi_rad: np.ndarray, B_field: np.ndarray = pr.B_vec_norm) -> float:
-    """ Computes the sine of the geomagnetic angle between the shower axis and the geomagnetic field. """
-
-    # Shower direction unit vector
-    K = build_K_vector(theta_rad, phi_rad)
-
-    # Geomagnetic field unit vector
-    sin_alpha = np.cross(K.T, B_field)
-    sin_alpha = np.linalg.norm(sin_alpha)
-    return sin_alpha
-
-def energy_uncertainty(ampl_uncertainty:float, sin_alpha:float, a:float=1.96e7) -> float:
-    """
-    Computes the uncertainty on the reconstructed electromagnetic energy.
-    Parameters
-    ----------
-    amplitude : float
-        Scaling factor from the best-fit ADF (in ADC units).
-    ampl_uncertainty : float
-        Uncertainty on the amplitude (in ADC units).
-    sin_alpha : float
-        Sine of the geomagnetic angle between the shower axis and the geomagnetic field.
-    a : float
-        Slope parameter obtained from the fit on simulations (default: 1.96e7).
-    Returns
-    -------
-    energy_uncertainty : float
-        Uncertainty on the reconstructed electromagnetic energy in eV.
-    """
-
-    dE_dA = 1 / (a * sin_alpha) * 1e18  # derivative of energy w.r.t amplitude
-    energy_uncert = dE_dA * ampl_uncertainty
-    return energy_uncert
-
-def compute_energy_for_all(ADF_res: np.ndarray, SWF_res: np.ndarray, CRB_res: np.ndarray, output_path: str, pickle_file: str = pr.pickle_file, B_field: np.ndarray = pr.B_vec_norm, verbose:bool=False) -> np.ndarray:
-    """
-    Computes the reconstructed electromagnetic energy for all events based on ADF results. We neglect the uncertaintites on the angles here. First proxy only.
-    Parameters
-    ----------
-    ADF_res : np.ndarray
-        Array of shape (n_events, 4) containing ADF reconstruction results.
-        The 4 columns correspond to [theta_deg, phi_deg, dw, Amp].
-    SWF_res : np.ndarray
-        Array of shape (n_events, 4) containing SWF reconstruction results.
-        The 4 columns correspond to [alpha_deg, beta_deg, rxmax, t0].
-    CRB_res : np.ndarray
-        Array of shape (n_events, 8) containing CRB results for ADF reconstruction.
-        The 8 columns correspond to the standard deviations of the parameters [theta_deg, phi_deg, dw, Amp, x_core, y_core, z_core, time_offset].
-    output_path : str
-        Path to save the results.
-    pickle_file : str
-        Name of the pickle file with the corrections coefficientes.
-    B_field : np.ndarray
-        Array of shape (3,) representing the geomagnetic field unit vector.
-    Returns
-    -------
-    energies : np.ndarray
-        Array of shape (n_events,) containing the reconstructed electromagnetic energies in eV.
-    """
-
-    n_events = ADF_res.shape[0]
-    energies = np.zeros(n_events, dtype=np.float64)
-    energies_uncert = np.zeros(n_events, dtype=np.float64)
     deg2rad = np.pi / 180.0
-    ampl_uncertainties = CRB_res[:, 7]
+    ADF_rad, SWF_rad = ADF_deg.copy(), SWF_deg.copy()
+    ADF_rad[:,:2] *= deg2rad
+    SWF_rad[:,:2] *= deg2rad
+    params_rad = np.hstack((SWF_rad, ADF_rad)) # shape (ncoincs, 8)
+    params_rad = jnp.array(params_rad)
+    cov_mats   = jnp.array(cov_mats)
 
-    ADF_rad = ADF_res.copy()
-    ADF_rad[:, :2] *= deg2rad  # Convert angles to radians
-    SWF_rad = SWF_res.copy()
-    SWF_rad[:, :2] *= deg2rad  # Convert angles to radians
+    df_coeffs = pd.read_csv(csv_file_path)
+    df_coeffs = df_coeffs[df_coeffs['value'] != 0.0]
+    jpn_coeffs = jnp.array(df_coeffs['value'].values)
 
-    corrections = read_corrections_pkl(pickle_file)
-    poly_features = corrections['poly_features']
-    linreg_model = corrections['linreg_model']
+    energies = np.zeros(ncoincs)
+    energies_uncertainty = np.zeros(ncoincs)
+
+    for i in tqdm(range(ncoincs), desc='Energy reconstruction...'):
+        SWF_ADF_rad = params_rad[i]
+        cov_mat     = cov_mats[i]
+        energies[i], energies_uncertainty[i] = jax.jit(ej.jax_energy_and_uncertainty)(SWF_ADF_rad, cov_mat, jpn_coeffs)
+        if verbose:
+            print(f"Coincidence {i}: Energy = {energies[i]:.3e} EeV ± {energies_uncertainty[i]:.3e} EeV")
     
+    np.save(os.path.join(output_path, "energies.npy"), {'energies': energies*1e18, 'uncertainties': energies_uncertainty*1e18, 'columns': ['energy_eV', 'energy_uncertainty_eV']}, allow_pickle=True)
 
-    for i in range(n_events):
+    # return energies, energies_uncertainty
 
-        # Compute sin(alpha)
-        sin_alpha = compute_sin_alpha(ADF_rad[i, 0], ADF_rad[i, 1], B_field)
-
-        # Compute energy and its uncertainty
-        energies[i] = energy_recons(ADF_rad[i,:], SWF_rad[i,:], poly_features, linreg_model)
-        energies_uncert[i] = energy_uncertainty(ampl_uncertainties[i], sin_alpha)
-        if verbose : 
-            print(f"Event {i}: Energy = {energies[i]:.2e} eV ± {energies_uncert[i]:.2e} eV")
-
-    np.save(os.path.join(output_path, "energies.npy"),
-            {'energies': energies, 'uncertainties': energies_uncert, 'columns': ['energy_eV', 'energy_uncertainty_eV']}, allow_pickle=True)
+def recons_energy_all_crb(ncoincs: int, ADF_deg: np.ndarray, SWF_deg: np.ndarray, CRB_res: np.ndarray, output_path: str, csv_file_path: str=pr.csv_coeff_corr, verbose: bool=False, n_max: int=None) -> np.ndarray:
+    """ Function reconstructing the energy for all coincidences
+    Inputs:
+        ncoincs: number of coincidences
+        ADF_res: dictionary containing ADF reconstruction results (in degrees)
+        SWF_res: dictionary containing SWF reconstruction results (in degrees)
+        file_path: path to save the results
+        n_max: maximum number of coincidences to process
+        verbose: boolean for verbosity
+        csv_file_path: path to the CSV file containing the correction coefficients
+    Outputs:
+        energies: array of reconstructed energies per coincidence in eV
+        energies_uncertainty: array of uncertainties of reconstructed energies per coincidence in eV """
     
-    # return energies, energies_uncert
+    if n_max is not None:
+        ncoincs = min(ncoincs, n_max)
+
+    deg2rad = np.pi / 180.0
+    ADF_rad, SWF_rad, CRB_rad = ADF_deg.copy(), SWF_deg.copy(), CRB_res.copy()
+    ADF_rad[:, :2] *= deg2rad
+    SWF_rad[:, :2] *= deg2rad
+    CRB_rad[:, :2] *= deg2rad
+    CRB_rad[:,4:6] *= deg2rad
+    params_rad = np.hstack((SWF_rad, ADF_rad)) # shape (ncoincs, 8)
+    params_rad = jnp.array(params_rad)
+    cov_mats = []
+    for i in range(ncoincs):
+        cov_mats.append(np.diag(CRB_rad[i]**2))
+    cov_mats   = jnp.array(cov_mats)
+
+    df_coeffs = pd.read_csv(csv_file_path)
+    df_coeffs = df_coeffs[df_coeffs['value'] != 0.0]
+    jpn_coeffs = jnp.array(df_coeffs['value'].values)
+
+    energies = np.zeros(ncoincs)
+    energies_uncertainty = np.zeros(ncoincs)
+
+    for i in tqdm(range(ncoincs), desc='Energy reconstruction...'):
+        SWF_ADF_rad = params_rad[i]
+        cov_mat     = cov_mats[i]
+        energies[i], energies_uncertainty[i] = jax.jit(ej.jax_energy_and_uncertainty)(SWF_ADF_rad, cov_mat, jpn_coeffs)
+        if verbose:
+            print(f"Coincidence {i}: Energy = {energies[i]:.3e} EeV ± {energies_uncertainty[i]:.3e} EeV")
+    
+    np.save(os.path.join(output_path, "energies.npy"), {'energies': energies*1e18, 'uncertainties': energies_uncertainty*1e18, 'columns': ['energy_eV', 'energy_uncertainty_eV']}, allow_pickle=True)
+
+    # return energies, energies_uncertainty
 
 
 # ======================= CRB of ADF + SWF ======================= #
 
-def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_res: np.ndarray, ADF_res: np.ndarray, file_path: str, n_max: int=None, verbose: bool=False):
+def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_res: np.ndarray, ADF_res: np.ndarray, file_path: str, n_max: int=None, verbose: bool=False, save_mat:bool=False) -> np.ndarray:
 
     """ Function calculating the Cramér-Rao Bound for the joint ADF + SWF reconstruction
     Inputs:
@@ -743,6 +677,7 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
     deg2rad      = np.pi / 180.0
     rad2deg      = 180.0 / np.pi
     cpt          = 0
+    cov_mats     = np.full((n_to_process, 8, 8), np.nan)
 
     for current_recons in tqdm(range(n_to_process), desc='ADF + SWF CRB computing...'):
         n_ants = nants[current_recons]
@@ -817,7 +752,10 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
                 print(f"Fisher matrix is singular for coinc {current_recons}.")
                 print(fisher_mat)
             stds[current_recons, :] = np.nan
+            cov_mat = np.full((8,8), np.nan)
             cpt += 1
+
+        cov_mats[current_recons, :, :] = cov_mat
 
     stds[:, 0] *= rad2deg  # std_alpha in degrees
     stds[:, 1] *= rad2deg  # std_beta in degrees
@@ -836,7 +774,11 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
             {'data': stds, 'columns': ['std_alpha_deg', 'std_beta_deg', 'std_rxmax', 'std_t0', 'std_theta_deg', 'std_phi_deg', 'std_dw', 'std_Amp']}, 
             allow_pickle=True)
     
-    return stds
+    if save_mat:
+        np.save(os.path.join(file_path, "CRB_fisher_matrices.npy"), 
+                {'data': cov_mats}, 
+                allow_pickle=True)
+    return stds, cov_mats
 
 def PWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, PWF_res: np.ndarray, file_path: str, n_max: int=None, verbose: bool=False):
     """ CRB for PWF recons """
@@ -991,14 +933,18 @@ def main():
     PWF_CRB(ncoincs, nants, antenna_coords_array, PWF_res, file_path, n_max=n_max, verbose=verbose_bool)
 
     print("\nComputing CRB for ADF + SWF...")
-    CRB_res = ADF_SWF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, n_max=n_max, verbose=verbose_bool)
+    if args.savemat:
+        print("Saving covariance matrices as well...")
+
+    _, cov_mats = ADF_SWF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, n_max=n_max, verbose=verbose_bool, save_mat=args.savemat)
 
     # --- Compute energy estimates ---
     print("\nComputing energy estimates from ADF results...")
 
     CRB_res = np.load(os.path.join(file_path, "CRB_res.npy"), allow_pickle=True).item()['data']
+    cov_mats = np.load(os.path.join(file_path, "CRB_fisher_matrices.npy"), allow_pickle=True).item()['data']
 
-    compute_energy_for_all(ADF_res, SWF_res, CRB_res, file_path, verbose=verbose_bool)
+    recons_energy_all_crb(ncoincs, ADF_res, SWF_res, CRB_res, file_path, csv_file_path=pr.csv_coeff_corr, verbose=verbose_bool, n_max=n_max)
     print("\nAll done.")
 
 if __name__ == "__main__":

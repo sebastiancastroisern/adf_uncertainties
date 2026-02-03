@@ -28,8 +28,8 @@ h0 = 8_000.0  # m
 # Values at the Xiaodushan Observatory, China
 
 modulus = 56.482  # uT (microtesla)
-B_inc = 61.6  # degrés
-B_dec = 0.1253  # degrés
+B_inc = np.deg2rad(61.6)  # degrés
+B_dec = np.deg2rad(0.1253)  # degrés
 
 B_vec_norm = np.array([
     np.sin(B_inc) * np.cos(B_dec),
@@ -75,6 +75,7 @@ amplitude_uncertainty = 0.075  # relative uncertainty on amplitude measurement
 
 n_omega_cr = 20
 pickle_file = "wavefronts/correction_coefficients.pkl"
+csv_coeff_corr = "wavefronts/correction_coefficients.csv"
 
 # ======================
 # Bounds (single source of truth)
