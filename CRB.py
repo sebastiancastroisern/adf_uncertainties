@@ -2,7 +2,6 @@
 import os
 import jax
 import time
-import pickle
 import argparse
 import numpy           as np
 import pandas          as pd
@@ -858,13 +857,13 @@ def main():
 
     # Coincidence set loading
     file_path              = args.filepath
-    print(f"-------------- Starting CRB Calculations -----------------\nUsing data from: {file_path}")
+    print(f"-------------- Looking for input files -----------------\nUsing data from: {file_path}")
     if not os.path.exists(os.path.join(file_path,'co_ncoincs.npy')) or npy_gen_bool == True : # If files do not exist or position file has not been modified recently
         print("Preprocessing input data...")
         npy_files_builder(file_path)
         print("Input data preprocessing done.")
 
-    print("\nLoading coincidence data...")
+    print("Loading coincidence data...")
     nants                =     np.load(os.path.join(file_path,'co_nants.npy'))
     antenna_coords_array =     np.load(os.path.join(file_path,'co_antenna_coords_array.npy'))
     peak_time_array_m    =     np.load(os.path.join(file_path,'co_peak_time_array.npy'))
@@ -873,12 +872,12 @@ def main():
     ncoincs              = int(np.load(os.path.join(file_path,'co_ncoincs.npy'))[0])
     # convert in float32 and int32 for faster processing
     antenna_coords_array = antenna_coords_array.astype(np.float64)
-    peak_time_array_m     = peak_time_array_m.astype(np.float64)
-    peak_time_array_s     = peak_time_array_s.astype(np.float64)
+    peak_time_array_m    = peak_time_array_m.astype(np.float64)
+    peak_time_array_s    = peak_time_array_s.astype(np.float64)
     peak_amp_array       = peak_amp_array.astype(np.float64)
     nants                = nants.astype(np.int32)
     n_to_process = min(ncoincs, n_max) if args.nmax is not None else ncoincs
-    print(f"Loaded {n_to_process} coincidences.")
+    print(f"Loaded {n_to_process} coincidences.\n")
 
     file_path = args.filepath if not args.test else os.path.join(args.filepath, 'CRB_test/')
     if not os.path.exists(file_path): os.makedirs(file_path)
@@ -889,28 +888,34 @@ def main():
              "ADF": "ADF_res.npy"}
     
     # Check séquentiel
-    run_SWF = run_ADF = True
-    if os.path.exists(os.path.join(file_path, files["SWF"])):
-        run_SWF = False
-    if os.path.exists(os.path.join(file_path, files["ADF"])):
-        run_ADF = False
+    run_PWF = run_SWF = run_ADF = True
+    if os.path.exists(os.path.join(file_path, files['PWF'])): run_PWF = False
+    if os.path.exists(os.path.join(file_path, files["SWF"])): run_SWF = False
+    if os.path.exists(os.path.join(file_path, files["ADF"])): run_ADF = False
 
     # Forcer CRB si demandé
     if args.test or args.tout : run_SWF = run_ADF = True
+    
+    print('-------------- Starting CRB Calculations --------------')
 
     # --- Load or compute PWF ---
-    print("\nComputing PWF...") 
-    PWF_res = PWF_recons(ncoincs, nants, antenna_coords_array, peak_time_array_m, file_path, n_max=n_max, verbose=verbose_bool)
-    print("[PWF Computed]")
+    if run_PWF:
+        print("\nComputing PWF...") 
+        PWF_res = PWF_recons(ncoincs, nants, antenna_coords_array, peak_time_array_m, file_path, n_max=n_max, verbose=verbose_bool)
+        print("[PWF Computed]")
+    else:
+        PWF_res = np.load(os.path.join(file_path, files['PWF']), allow_pickle=True).item()['data']
+        print("[PWF loaded]")
 
     # --- Load or compute SWF ---
-    print("\nComputing SWF...")
     if run_SWF:
+        print("\nComputing SWF...")
         if multi_processing:
             print(f"[MULTIPROCESSING] {n_to_process} SWF reconstruction with {mp.cpu_count()-1} CPUs...")
             SWF_res = SWF_recons_mp(ncoincs, nants, antenna_coords_array, peak_time_array_s, PWF_res, file_path, verbose=verbose_bool, n_max=n_max)
         else:
             SWF_res = SWF_recons(ncoincs, nants, antenna_coords_array, peak_time_array_s, PWF_res, file_path, verbose=verbose_bool, n_max=n_max)
+        print("[SWF computed]")
     else:
         SWF_res = np.load(os.path.join(file_path, files["SWF"]), allow_pickle=True).item()['data']
         print("[SWF loaded]")
@@ -923,26 +928,30 @@ def main():
             ADF_res = ADF_recons_mp(ncoincs, nants, antenna_coords_array, peak_amp_array, PWF_res, SWF_res, file_path, verbose=verbose_bool, n_max=n_max)
         else:
             ADF_res = ADF_recons(ncoincs, nants, antenna_coords_array, peak_amp_array, PWF_res, SWF_res, file_path, verbose=verbose_bool, n_max=n_max)
+        print("[SWF computed]")
     else:
         ADF_res = np.load(os.path.join(file_path, files["ADF"]), allow_pickle=True).item()['data']
         print("[ADF loaded]")
 
     # --- Compute CRB ---
 
-    print("\nComputing CRB for PWF...")
-    PWF_CRB(ncoincs, nants, antenna_coords_array, PWF_res, file_path, n_max=n_max, verbose=verbose_bool)
 
-    print("\nComputing CRB for ADF + SWF...")
-    if args.savemat:
-        print("Saving covariance matrices as well...")
+    if not os.path.exists(os.path.join(file_path, files['CRB'])) or (os.path.getmtime(os.path.join(file_path, files['CRB'])) - time.time()) > 7*24*3600:
 
-    _, cov_mats = ADF_SWF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, n_max=n_max, verbose=verbose_bool, save_mat=args.savemat)
+        print("\nComputing CRB for PWF...")
+        PWF_CRB(ncoincs, nants, antenna_coords_array, PWF_res, file_path, n_max=n_max, verbose=verbose_bool)
+
+        print("\nComputing CRB for ADF + SWF...")
+        CRB_res, cov_mats = ADF_SWF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, n_max=n_max, verbose=verbose_bool, save_mat=args.savemat)
+    
+    else: 
+        CRB_res = np.load(os.path.join(file_path, "CRB_res.npy"), allow_pickle=True).item()['data']
+        cov_mats = np.load(os.path.join(file_path, "CRB_fisher_matrices.npy"), allow_pickle=True).item()['data']
+
+    print('\n-------------- Starting Energy Reconstruction --------------')
 
     # --- Compute energy estimates ---
     print("\nComputing energy estimates from ADF results...")
-
-    CRB_res = np.load(os.path.join(file_path, "CRB_res.npy"), allow_pickle=True).item()['data']
-    cov_mats = np.load(os.path.join(file_path, "CRB_fisher_matrices.npy"), allow_pickle=True).item()['data']
 
     recons_energy_all_crb(ncoincs, ADF_res, SWF_res, CRB_res, file_path, csv_file_path=pr.csv_coeff_corr, verbose=verbose_bool, n_max=n_max)
     print("\nAll done.")
