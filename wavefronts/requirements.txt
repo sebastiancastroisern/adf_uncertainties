@@ -9,3 +9,4 @@ emcee
 corner
 argparse
 scikit-learn
+pymap3d

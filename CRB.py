@@ -618,6 +618,8 @@ def recons_energy_all_crb(ncoincs: int, ADF_deg: np.ndarray, SWF_deg: np.ndarray
         energies: array of reconstructed energies per coincidence in eV
         energies_uncertainty: array of uncertainties of reconstructed energies per coincidence in eV """
     
+    t0 = time.time()
+    
     if n_max is not None:
         ncoincs = min(ncoincs, n_max)
 
@@ -647,6 +649,9 @@ def recons_energy_all_crb(ncoincs: int, ADF_deg: np.ndarray, SWF_deg: np.ndarray
         energies[i], energies_uncertainty[i] = jax.jit(ej.jax_energy_and_uncertainty)(SWF_ADF_rad, cov_mat, jpn_coeffs)
         if verbose:
             print(f"Coincidence {i}: Energy = {energies[i]:.3e} EeV ± {energies_uncertainty[i]:.3e} EeV")
+
+    print(f"\n[{time.time()-t0:.3f}s] Energy reconstruction done for {ncoincs} coincidences")
+    print(f"Percentages of negative energies: {(energies < 0).sum() / ncoincs * 100:.2f}%")
     
     np.save(os.path.join(output_path, "energies.npy"), {'energies': energies*1e18, 'uncertainties': energies_uncertainty*1e18, 'columns': ['energy_eV', 'energy_uncertainty_eV']}, allow_pickle=True)
 
@@ -744,13 +749,13 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
                 if verbose and 0<1:
                     print(f"Fisher matrix inversion NaN of Inf for coinc {current_recons}.")
                     # print(fisher_mat)
-                stds[current_recons, :] = np.nan
+                stds[current_recons, :] = np.array([np.nan]*8)
                 cpt += 1
         except np.linalg.LinAlgError:
             if verbose and 0<1:
                 print(f"Fisher matrix is singular for coinc {current_recons}.")
                 print(fisher_mat)
-            stds[current_recons, :] = np.nan
+            stds[current_recons, :] = np.array([np.nan]*8)
             cov_mat = np.full((8,8), np.nan)
             cpt += 1
 
@@ -779,11 +784,115 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
                 allow_pickle=True)
     return stds, cov_mats
 
+def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_res: np.ndarray, ADF_res: np.ndarray, file_path: str, n_max: int=None, verbose: bool=False, save_mat:bool=False) -> np.ndarray:
+    """ Function calculating the Cramér-Rao Bound for the joint ADF + SWF reconstruction
+    Inputs:
+        ncoincs: number of coincidences
+        nants: array of number of antennas per coincidence
+        antennas_coords: array of antenna coordinates per coincidence
+        SWF_res: dictionary containing SWF reconstruction results
+        ADF_res: dictionary containing ADF reconstruction results
+        file_path: path to save the results
+        n_max: maximum number of coincidences to process
+        verbose: boolean for verbosity
+    Outputs:
+        stds: array of standard deviations for each parameter per coincidence"""
+
+    t0           = time.time()                 # Début du timer
+    n_to_process = ncoincs if n_max is None else  min(ncoincs, n_max) # Nombre de coïncidences à traiter
+    stds         = np.zeros((n_to_process, 4)) # stds pré-allocation
+    deg2rad      = np.pi / 180.0
+    rad2deg      = 180.0 / np.pi
+    cpt          = 0
+    cov_mats     = np.full((n_to_process, 4, 4), np.nan)
+
+    for current_recons in tqdm(range(n_to_process), desc='ADF + SWF CRB computing...'):
+        n_ants = nants[current_recons]
+        ant_coords = antennas_coords[current_recons, :n_ants] # Coords
+        
+        swf = SWF_res[current_recons]
+        adf = ADF_res[current_recons]
+
+        swf_rad = swf.copy()
+        swf_rad[0] *= deg2rad
+        swf_rad[1] *= deg2rad
+        adf_rad = adf.copy()
+        adf_rad[0] *= deg2rad
+        adf_rad[1] *= deg2rad
+
+        Xsource = build_Xsource(swf_rad[0], swf_rad[1], swf_rad[2])
+        
+        fisher_mat = np.zeros((4,4))
+
+        # Calcul des dérivées pour tous les paramètres
+        h = 1e-6 * (np.abs(adf_rad)) 
+        derivates_ampl = np.zeros((n_ants, 4))
+
+        # Calcul de la dérivée pour chaque antenne, par rapport à chaque paramètre
+        for i in range(4):
+            # Perturbations symétriques
+            params_plus  = adf_rad.copy() ; params_plus[i]  += h[i]
+            params_minus = adf_rad.copy() ; params_minus[i] -= h[i]
+
+            # Reconstruction of Xmax for perturbed SWF parameters
+            
+            pred_plus_ampl  = ADF_3D_model(params_plus, ant_coords, Xsource) # in mV
+            pred_minus_ampl  = ADF_3D_model(params_minus, ant_coords, Xsource) # in mV
+            
+            # Dérivée
+            derivates_ampl[:, i] = (pred_plus_ampl - pred_minus_ampl) / (2 * h[i])
+        
+        sigma_amp = pr.amplitude_uncertainty * abs(ADF_3D_model(adf_rad, ant_coords, Xsource))  # 7.5% amplitude uncertainty in mV
+        sigma_amp = [ (sigma_amp[i]**2 + pr.galactic_noise_floor**2)**0.5 for i in range(n_ants)]  # Fixed minimum amplitude uncertainty in mV
+            
+        for k in range(n_ants):
+            fisher_mat += np.outer(derivates_ampl[k,:], derivates_ampl[k,:]) / (sigma_amp[k]**2)
+
+        try:
+            cov_mat = np.linalg.inv(fisher_mat)
+            stds[current_recons, :] = np.sqrt(np.diag(cov_mat)) # Écarts-types
+            if np.any(np.isnan(stds[current_recons, :])) or np.any(np.isinf(stds[current_recons, :])):
+                if verbose and 0<1:
+                    print(f"Fisher matrix inversion NaN of Inf for coinc {current_recons}.")
+                    # print(fisher_mat)
+                stds[current_recons, :] = np.array([np.nan]*4)
+                cpt += 1
+        except np.linalg.LinAlgError:
+            if verbose and 0<1:
+                print(f"Fisher matrix is singular for coinc {current_recons}.")
+                print(fisher_mat)
+            stds[current_recons, :] = np.array([np.nan]*4)
+            cov_mat = np.full((8,8), np.nan)
+            cpt += 1
+
+        cov_mats[current_recons, :, :] = cov_mat
+
+    stds[:, 0] *= rad2deg  # std_alpha in degrees
+    stds[:, 1] *= rad2deg  # std_beta in degrees
+
+    if verbose and 1<2:
+        print(f"Stds for first 20 coincidences:")
+        for j in range(min(20, n_to_process)):
+            print(f"\n\n[Coincidence {j}] \nstd_theta={stds[j,0]:.4e}°, \nstd_phi={stds[j,1]:.4e}°, \nstd_dw={stds[j,2]:.4e}, \nstd_Amp={stds[j,3]:.4e}")
+        print(f"Percentage of singular matrices: {100.0 * cpt / n_to_process:.2f}%")
+        
+    print(f"\n[{time.time()-t0:.3f}s] ADF only CRB done for {n_to_process} coincidences with {cpt} singular matrices")
+    
+    np.save(os.path.join(file_path, "CRB_ADF_only_res.npy"), 
+            {'data': stds, 'columns': ['std_theta_deg', 'std_phi_deg', 'std_dw', 'std_Amp']}, 
+            allow_pickle=True)
+    
+    if save_mat:
+        np.save(os.path.join(file_path, "CRB_ADF_only_fisher_matrices.npy"), 
+                {'data': cov_mats}, 
+                allow_pickle=True)
+    return stds, cov_mats
+
 def PWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, PWF_res: np.ndarray, file_path: str, n_max: int=None, verbose: bool=False):
     """ CRB for PWF recons """
     t0           = time.time()                 # Début du timer
     n_to_process = ncoincs if n_max is None else  min(ncoincs, n_max) # Nombre de coïncidences à traiter
-    stds         = np.zeros((n_to_process, 8)) # stds pré-allocation
+    stds         = np.zeros((n_to_process, 2)) # stds pré-allocation
     deg2rad      = np.pi / 180.0
     rad2deg      = 180.0 / np.pi
     cpt          = 0
@@ -820,13 +929,13 @@ def PWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, PWF_re
                 if verbose and 2<1:
                     print(f"Fisher matrix inversion NaN of Inf for coinc {current_recons}.")
                     print(fisher_mat)
-                stds[current_recons, 0:2] = np.nan
+                stds[current_recons, 0:2] = np.array([np.nan]*2)
                 cpt += 1
         except np.linalg.LinAlgError:
             if verbose and 2<1:
                 print(f"Fisher matrix is singular for coinc {current_recons}.")
                 print(fisher_mat)
-            stds[current_recons, 0:2] = np.nan
+            stds[current_recons, 0:2] = np.array([np.nan]*2)
             cpt += 1
         
     stds[:, 0] *= rad2deg  # std_theta in degrees
@@ -885,7 +994,8 @@ def main():
     files = {"PWF": "PWF_res.npy",
              "CRB": "CRB_res.npy",
              "SWF": "SWF_res.npy",
-             "ADF": "ADF_res.npy"}
+             "ADF": "ADF_res.npy",
+             "CRB_ADF_only": "CRB_ADF_only_res.npy"}
     
     # Check séquentiel
     run_PWF = run_SWF = run_ADF = True
@@ -936,13 +1046,15 @@ def main():
     # --- Compute CRB ---
 
 
-    if not os.path.exists(os.path.join(file_path, files['CRB'])) or (os.path.getmtime(os.path.join(file_path, files['CRB'])) - time.time()) > 7*24*3600:
+    if not os.path.exists(os.path.join(file_path, files['CRB'])) or not os.path.exists(os.path.join(file_path, files['CRB_ADF_only'])) or (os.path.getmtime(os.path.join(file_path, files['CRB'])) - time.time()) > 7*24*3600:
 
         print("\nComputing CRB for PWF...")
         PWF_CRB(ncoincs, nants, antenna_coords_array, PWF_res, file_path, n_max=n_max, verbose=verbose_bool)
 
         print("\nComputing CRB for ADF + SWF...")
         CRB_res, cov_mats = ADF_SWF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, n_max=n_max, verbose=verbose_bool, save_mat=args.savemat)
+
+        CRB_ADF_only, cov_mats_ADF_only = ADF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, n_max=n_max, verbose=verbose_bool, save_mat=args.savemat)
     
     else: 
         CRB_res = np.load(os.path.join(file_path, "CRB_res.npy"), allow_pickle=True).item()['data']

@@ -7,10 +7,12 @@ import numpy as np
 
 c_light = 2.997924580e8 # m/s
 R_earth = 6371007.0     # m
-groundAltitude = 1264.0 # m
+lat_0 = 0.99  
+long_0 = 93.94   
+# groundAltitude = 1264.0 # m
 
-# # # For the NJ simulations
-# groundAltitude = 1086.0 # m
+# For the NJ simulations
+groundAltitude = 1086.0 # m
 
 # ======================
 # Atmospheric model
@@ -76,6 +78,7 @@ amplitude_uncertainty = 0.075  # relative uncertainty on amplitude measurement
 n_omega_cr = 20
 pickle_file = "wavefronts/correction_coefficients.pkl"
 csv_coeff_corr = "wavefronts/correction_coefficients.csv"
+npy_cov_matrix = "wavefronts/cov_beta.npy"
 
 # ======================
 # Bounds (single source of truth)
