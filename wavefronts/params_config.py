@@ -9,10 +9,10 @@ c_light = 2.997924580e8 # m/s
 R_earth = 6371007.0     # m
 lat_0 = 0.99  
 long_0 = 93.94   
-# groundAltitude = 1264.0 # m
+groundAltitude = 1264.0 # m
 
 # For the NJ simulations
-groundAltitude = 1086.0 # m
+# groundAltitude = 1086.0 # m
 
 # ======================
 # Atmospheric model
@@ -58,18 +58,18 @@ B_vec = B_vec_norm * modulus * 1e-6  # en T (tesla)
 # Noise / detector
 # ======================
 
-jitter_time = 5e-9                # s
-galactic_noise_floor = 8.0        # µV (aucune idée j'ai pas vérifié)
-assym_coeff = 0.01
-cr = 1.0
-amplitude_uncertainty = 0.075  # relative uncertainty on amplitude measurement
-
-# # For the NJ simulation
-# jitter_time = 1e-9                # s
-# galactic_noise_floor = 0.0        # µV (aucune idée j'ai pas vérifié)
+# jitter_time = 5e-9                # s
+# galactic_noise_floor = 8.0        # µV (aucune idée j'ai pas vérifié)
 # assym_coeff = 0.01
 # cr = 1.0
-# amplitude_uncertainty = 0.1  # relative uncertainty on amplitude measurement
+# amplitude_uncertainty = 0.075  # relative uncertainty on amplitude measurement
+
+# For the NJ simulation
+jitter_time = 1e-9                # s
+galactic_noise_floor = 0.0        # µV (aucune idée j'ai pas vérifié)
+assym_coeff = 0.01
+cr = 1.0
+amplitude_uncertainty = 0.1  # relative uncertainty on amplitude measurement
 
 # ======================
 # Interpolation

@@ -98,19 +98,19 @@ def npy_files_builder(file_path: str) -> None:
     np.save(file_path+"/co_peak_amp_array.npy",co_pa)
     pass
 
-def build_Xsource(alpha: float, beta: float, r_xmax: float) -> np.ndarray:
+def build_Xsource(alpha_rad: float, beta_rad: float, r_xmax: float) -> np.ndarray:
     """ Build the source position vector Xsource from spherical coordinates
     Inputs:
-        alpha: zenith angle in radians
-        beta: azimuthal angle in radians
+        alpha_rad: zenith angle in radians
+        beta_rad: azimuthal angle in radians
         r_xmax: distance to the source in meters
     Outputs:
         Xsource: source position vector in meters
     """
-    ca = np.cos(alpha)
-    sa = np.sin(alpha)
-    cb = np.cos(beta)
-    sb = np.sin(beta)
+    ca = np.cos(alpha_rad)
+    sa = np.sin(alpha_rad)
+    cb = np.cos(beta_rad)
+    sb = np.sin(beta_rad)
 
     Xsource = np.array([
         r_xmax * sa * cb,
@@ -196,51 +196,31 @@ def SWF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray
 
         n_to_process = ncoincs if n_max is None else min(ncoincs, n_max)
         t0 = time.time()
-        rad2deg = 180.0 / np.pi
         deg2rad = np.pi / 180.0
         SWF_res = np.zeros((n_to_process, 4))  # alpha, beta in degrees, rxmax, t_0
+        SWF_losses = np.zeros(n_to_process) # SWF loss values   
 
         for i in tqdm(range(n_to_process), desc='SWF in progress...'):
             try:
                 alpha_PWF_rad = PWF_res[i,0] * deg2rad # we use theta and phi from PWF as initial guesses for alpha and beta
                 beta_PWF_rad  = PWF_res[i,1] * deg2rad # they should not be too far, but not quite exactly the same
 
-                if event_type == 'EAS':
-                    bounds = np.array([[alpha_PWF_rad - 4*deg2rad, alpha_PWF_rad + 4*deg2rad], # alpha bounds
-                                    [beta_PWF_rad - 4*deg2rad, beta_PWF_rad + 4*deg2rad], # beta bounds
-                                    pr.bounds[2], pr.bounds[3]], dtype=np.float64) # rxmax and t0 bounds
-                else:
-                    bounds = pr.bounds # wide angle bounds
-
-                PWF_guess = np.array(bounds, dtype=np.float64).mean(axis=1)
-                
-
-                args = (antenna_coords_array[i,:nants[i]], peak_time_array[i,:nants[i]], False) # if true returns chi2/ndof
-                
-                resu = differential_evolution(SWF_loss, bounds, args=args, strategy='best1bin', maxiter=3000, seed=42, tol=1e-6, mutation=(0.5, 1), recombination=0.7, x0=PWF_guess)
-
-                alpha_SWF_deg = resu.x[0] * rad2deg
-                beta_SWF_deg  = (resu.x[1] % (2 * np.pi)) * rad2deg # careful with modulo 2pi
-                rxmax_SWF     = resu.x[2]
-
-                if verbose : 
-                    print(f"SWF initial guess for coincidence {i}:")
-                    print(f"  alpha : {PWF_guess[0]*rad2deg:10.2f}°   → {alpha_SWF_deg:10.2f}°")
-                    print(f"  beta  : {PWF_guess[1]*rad2deg:10.2f}°   → {beta_SWF_deg:10.2f}°")
-                    print(f"  rxmax :{PWF_guess[2]/1e3:10.2f} km  →{rxmax_SWF/1e3:10.2f} km")
-                    print(f"  t0    :{PWF_guess[3]:10.2e} s   →{resu.x[3]:10.2e} s")
+                _, alpha_SWF_deg, beta_SWF_deg, rxmax_SWF, t0_SWF, swf_loss = SWF_single_recon(i, alpha_PWF_rad, beta_PWF_rad, antenna_coords_array[i,:nants[i]], peak_time_array[i,:nants[i]], verbose, event_type)
 
                 SWF_res[i,0] = alpha_SWF_deg
                 SWF_res[i,1] = beta_SWF_deg
                 SWF_res[i,2] = rxmax_SWF
+                SWF_res[i,3] = t0_SWF
+                SWF_losses[i] = swf_loss
 
             except Exception as e:
                 if verbose : print(f"SWF reconstruction failed for coincidence {i} with error: {e}")
                 SWF_res[i,:] = np.nan
         
         print(f"\n[{time.time()-t0:.3f}s] Spherical Wave Fit reconstruction done for {n_to_process} coincidences")
-        np.save(os.path.join(file_path, "SWF_res.npy"), {'data': SWF_res, 'columns': ['alpha_deg', 'beta_deg', 'rxmax', 't0', 'x_core', 'y_core', 'z_core']}, allow_pickle=True)
-        return SWF_res
+        np.save(os.path.join(file_path, "SWF_res.npy"), {'data': SWF_res, 'columns': ['alpha_deg', 'beta_deg', 'rxmax', 't0']}, {'loss': SWF_losses})
+
+        return SWF_res, SWF_losses
 
 def SWF_single_recon(i: int, alpha_PWF_rad: float, beta_PWF_rad: float, ant_coords: np.ndarray, peak_time_arr: np.ndarray, verbose: bool, event_type: bool='EAS') -> Tuple[int, float, float, float, float]:
     rad2deg = 180.0 / np.pi
@@ -263,7 +243,7 @@ def SWF_single_recon(i: int, alpha_PWF_rad: float, beta_PWF_rad: float, ant_coor
         # Initial guess
         PWF_guess = np.array(bounds, dtype=np.float64).mean(axis=1)
 
-        args = (ant_coords, peak_time_arr, False) # if true returns chi2/ndof
+        args = (ant_coords, peak_time_arr, True) # if true returns chi2/ndof
         
         resu = differential_evolution(SWF_loss, bounds, args=args, strategy='best1bin', maxiter=3000, seed=42, tol=1e-6, mutation=(0.5, 1), recombination=0.7, x0=PWF_guess)
 
@@ -278,10 +258,10 @@ def SWF_single_recon(i: int, alpha_PWF_rad: float, beta_PWF_rad: float, ant_coor
             print(f"  beta  : {PWF_guess[1]*rad2deg:10.2f}°   →   {beta_SWF_deg:10.2f}° (Corrigé Modulo 360)")
             print(f"  rxmax : {PWF_guess[2]:10.2f}m   →   {rxmax_SWF:10.2f}m")
 
-        return (i, alpha_SWF_deg, beta_SWF_deg, rxmax_SWF, resu.x[3])
+        return (i, alpha_SWF_deg, beta_SWF_deg, rxmax_SWF, resu.x[3], resu.fun)
     except Exception as e:
         if verbose : print(f"SWF reconstruction failed for coincidence {i} with error: {e}")
-        return (i, np.nan, np.nan, np.nan, np.nan)
+        return (i, np.nan, np.nan, np.nan, np.nan, np.nan)
 
 def worker_function(args: Tuple) -> Tuple[int, float, float, float, float]:
     """Fonction wrapper pour multiprocessing (doit être picklable)"""
@@ -311,6 +291,7 @@ def SWF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndar
     Returns:
     --------
     SWF_res : array [n_to_process, 4] - [alpha_deg, beta_deg, rxmax, t0]
+    SWF_losses : array [n_to_process] - SWF loss values
     """
     
     deg2rad = np.pi / 180.0
@@ -346,9 +327,11 @@ def SWF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndar
     
     # Collect results into array
     SWF_res = np.zeros((n_to_process, 4), dtype=np.float64)
+    SWF_losses = np.zeros(n_to_process, dtype=np.float64)
     for result in results:
-        idx, alpha, beta, rxmax, t0 = result
+        idx, alpha, beta, rxmax, t0, swf_loss = result
         SWF_res[idx] = [alpha, beta, rxmax, t0]
+        SWF_losses[idx] = swf_loss
     
     # Free memory
     del results
@@ -357,10 +340,9 @@ def SWF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndar
     
     # Save as .npy only
     np.save(os.path.join(file_path, "SWF_res.npy"), 
-        {'data': SWF_res, 'columns': ['alpha_deg', 'beta_deg', 'rxmax', 't0']}, 
-            allow_pickle=True)
+            {'data': SWF_res, 'columns': ['alpha_deg', 'beta_deg', 'rxmax', 't0']}, {'loss': SWF_losses})
     
-    return SWF_res
+    return SWF_res, SWF_losses
 
 
 # ============================ ADF ============================ #
@@ -383,71 +365,48 @@ def ADF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray
     r2d, d2r = 180.0/np.pi, np.pi/180.0 # degrees to radians conversion factors
     
     # Vectorized preprocessing
-    theta_PWF  = PWF_res[:n_to_process,0] * d2r
-    phi_PWF    = PWF_res[:n_to_process,1] * d2r
-    allpha_PWF = SWF_res[:n_to_process,0] * d2r
-    beta_PWF   = SWF_res[:n_to_process,1] * d2r
-    rx_max     = SWF_res[:n_to_process,2]
-    ca, sa, cb, sb = np.cos(allpha_PWF), np.sin(allpha_PWF), np.cos(beta_PWF), np.sin(beta_PWF)
+    theta_PWF_rad = PWF_res[:n_to_process,0] * d2r
+    phi_PWF_rad   = PWF_res[:n_to_process,1] * d2r
+    alpha_PWF_rad = SWF_res[:n_to_process,0] * d2r
+    beta_PWF_rad  = SWF_res[:n_to_process,1] * d2r
+    rx_max        = SWF_res[:n_to_process,2]
     
     ADF_res = np.zeros((n_to_process, 4))
+    ADF_losses = np.zeros(n_to_process)
     
     for i in tqdm(range(n_to_process), desc='ADF in progress...'):
 
-        # Xmax position
-        Xmax = np.array([rx_max[i]*sa[i]*cb[i], rx_max[i]*sa[i]*sb[i], pr.groundAltitude+rx_max[i]*ca[i]], dtype=np.float64)
-        
-        # Data slicing
-        n_ants = nants[i]
-        peak_amps, ant_coords = peak_amp_array[i,:n_ants], antenna_coords_array[i,:n_ants]
-       
-        # Bounds and initial guess
-        angle_pm = 3*d2r
-        bounds = np.array([[theta_PWF[i]-angle_pm, theta_PWF[i]+angle_pm],  # theta bounds
-                           [phi_PWF[i]-angle_pm, phi_PWF[i]+angle_pm],      # phi bounds
-                            pr.bounds[6], pr.bounds[7]], dtype=np.float64)      # dw and Amp bounds
-        
-        max_idx = peak_amps.argmax()
-        Amp_guess = np.linalg.norm(ant_coords[max_idx]-Xmax)*peak_amps[max_idx] # propagation of 1/r to highest amplitude antenna => Amp guess = r*Amp_max
-        initial_guess = np.array([theta_PWF[i], phi_PWF[i], 5, Amp_guess], dtype=np.float64)
+        i, theta_deg, phi_deg, dw, Amp, loss = ADF_single_recon(i, theta_PWF_rad[i], phi_PWF_rad[i], rx_max[i], alpha_PWF_rad[i], beta_PWF_rad[i], antenna_coords_array[i,:nants[i]], peak_amp_array[i,:nants[i]], verbose)
 
-        # Optimization
-        res = minimize(ADF_loss, initial_guess, bounds=bounds, args=(peak_amps,ant_coords,Xmax, False), method='migrad', tol=1e-5)
-
-        # Store results
-        ADF_res[i] = [res.x[0]*r2d, ((res.x[1] % (2*np.pi))*r2d), res.x[2], res.x[3]] # careful with modulo 2pi
-        
-        if verbose :
-            print(f"Xmax {i}: X={Xmax[0]:.2e}, Y={Xmax[1]:.2e}, Z={Xmax[2]-pr.groundAltitude:.2e}")
-            print(f"Xmax distance to (0,0,0) : {np.linalg.norm(Xmax)/1e3:.2e} km")
-            print(f"  θ  : {initial_guess[0]*r2d:10.2f}°   →   {res.x[0]*r2d:10.2f}°")
-            print(f"  φ  : {initial_guess[1]*r2d:10.2f}°   →   {res.x[1]*r2d:10.2f}°")
-            print(f"  dw : {initial_guess[2]:10.2f}    →   {res.x[2]:10.2f}")
-            print(f"  A  : {initial_guess[3]:10.2e}    →   {res.x[3]:10.2e}")
+        ADF_res[i,0] = theta_deg
+        ADF_res[i,1] = phi_deg
+        ADF_res[i,2] = dw
+        ADF_res[i,3] = Amp
+        ADF_losses[i] = loss
 
     print(f"[{time.time()-t0:.3f}s] ADF done for {n_to_process} coincidences")
     np.save(os.path.join(file_path, "ADF_res.npy"), 
-            {'data': ADF_res, 'columns': ['theta_deg','phi_deg','dw','Amp']}, allow_pickle=True)
-    return ADF_res
+            {'data': ADF_res, 'columns': ['theta_deg','phi_deg','dw','Amp']}, {'loss': ADF_losses})
+    return ADF_res, ADF_losses
 
-def ADF_single_recon(i: int, theta_PWF: float, phi_PWF: float, rx_max: float, sa: float, ca: float, sb: float, cb: float, ant_coords: np.ndarray, peak_amp_arr: np.ndarray, verbose: bool=False) -> Tuple[int, float, float, float, float]:
+def ADF_single_recon(i: int, theta_PWF_rad: float, phi_PWF_rad: float, rx_max: float, alpha_rad: float, beta_rad: float, ant_coords: np.ndarray, peak_amp_arr: np.ndarray, verbose: bool=False) -> Tuple[int, float, float, float, float]:
     """Single ADF reconstruction for one coincidence, ca=cos(alpha_PWF), sa=sin(alpha_PWF), cb=cos(beta_PWF), sb=sin(beta_PWF)"""
     r2d, d2r = 180.0/np.pi, np.pi/180.0
     
     try:
         # Xmax position
-        Xmax = np.array([rx_max*sa*cb, rx_max*sa*sb, pr.groundAltitude+rx_max*ca], dtype=np.float64) # ca = cos(alpha_PWF), sa = sin(alpha_PWF), cb = cos(beta_PWF), sb = sin(beta_PWF)
-        
+        Xmax = build_Xsource(alpha_rad, beta_rad, rx_max)
+
         # Bounds and initial guess
         angle_pm = 3*d2r
-        bounds = np.array([[theta_PWF-angle_pm, theta_PWF+angle_pm], # theta bounds
-                           [phi_PWF-angle_pm, phi_PWF+angle_pm],     # phi bounds
+        bounds   = np.array([[theta_PWF_rad-angle_pm, theta_PWF_rad+angle_pm], # theta bounds
+                           [phi_PWF_rad-angle_pm, phi_PWF_rad+angle_pm],     # phi bounds
                            pr.bounds[6], pr.bounds[7]],  # dw and Amp bounds
                            dtype=np.float64)     
 
         max_idx = peak_amp_arr.argmax()
         Amp_guess = np.linalg.norm(ant_coords[max_idx]-Xmax)*peak_amp_arr[max_idx] # propagation of 1/r to highest amplitude antenna => Amp guess = r*Amp_max
-        initial_guess = np.array([theta_PWF, phi_PWF, 5, Amp_guess], dtype=np.float64)
+        initial_guess = np.array([theta_PWF_rad, phi_PWF_rad, 5, Amp_guess], dtype=np.float64)
         
         # Optimization
         res = minimize(ADF_loss, initial_guess, bounds=bounds, 
@@ -462,18 +421,18 @@ def ADF_single_recon(i: int, theta_PWF: float, phi_PWF: float, rx_max: float, sa
             print(f"  dw : {initial_guess[2]:10.2f}    →   {res.x[2]:10.2f}")
             print(f"  A  : {initial_guess[3]:10.2e}    →   {res.x[3]:10.2e}")
         
-        return (i, res.x[0]*r2d, (res.x[1] % (2*np.pi))*r2d, res.x[2], res.x[3]) # careful with modulo 2pi
+        return (i, res.x[0]*r2d, (res.x[1] % (2*np.pi))*r2d, res.x[2], res.x[3], res.fun) # careful with modulo 2pi
     
     except Exception as e:
         if verbose:
             print(f"ADF reconstruction failed for coincidence {i} with error: {e}")
             print(e)
-        return (i, np.nan, np.nan, np.nan, np.nan)
+        return (i, np.nan, np.nan, np.nan, np.nan, np.nan)
 
 def worker_function_adf(args: Tuple) -> Tuple[int, float, float, float, float]:
     """Wrapper for multiprocessing"""
-    i, th, ph, rx, sa, ca, sb, cb, ant_coords, peak_amp_arr, verbose = args
-    return ADF_single_recon(i, th, ph, rx, sa, ca, sb, cb, ant_coords, peak_amp_arr, verbose)
+    i, th, ph, rx, al, be, ant_coords, peak_amp_arr, verbose = args
+    return ADF_single_recon(i, th, ph, rx, al, be, ant_coords, peak_amp_arr, verbose)
 
 def ADF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray, peak_amp_array: np.ndarray, PWF_res: np.ndarray, SWF_res: np.ndarray, file_path: str, verbose: bool=False, n_max: int=None) -> np.ndarray:
     """
@@ -514,8 +473,6 @@ def ADF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndar
     al = SWF_res[:n_to_process, 0] * d2r
     be = SWF_res[:n_to_process, 1] * d2r
     rx = SWF_res[:n_to_process, 2]
-    ca, sa = np.cos(al), np.sin(al)
-    cb, sb = np.cos(be), np.sin(be)
     
     # Prepare arguments (will be deleted after use)
     args_list = []
@@ -523,11 +480,11 @@ def ADF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndar
         ant_coords = antenna_coords_array[i, :nants[i]].copy()
         peak_amp_arr = peak_amp_array[i, :nants[i]].copy()
         
-        args_list.append((i, th[i], ph[i], rx[i], sa[i], ca[i], sb[i], cb[i],
+        args_list.append((i, th[i], ph[i], rx[i], al[i], be[i],
                         ant_coords, peak_amp_arr, verbose))
     
     # Free memory from preprocessed arrays
-    del th, ph, al, be, rx, ca, sa, cb, sb
+    del th, ph, al, be, rx
     
     # Parallel processing with progress bar
     with mp.Pool(processes=n_processes) as pool:
@@ -543,20 +500,21 @@ def ADF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndar
     
     # Collect results into array
     ADF_res = np.zeros((n_to_process, 4), dtype=np.float64)
+    ADF_losses = np.zeros(n_to_process, dtype=np.float64)
     for result in results:
-        idx, theta, phi, dw, amp = result
+        idx, theta, phi, dw, amp, loss = result
         ADF_res[idx] = [theta, phi, dw, amp]
+        ADF_losses[idx] = loss
     
     # Free memory
     del results
     
     # Save as .npy only
     np.save(os.path.join(file_path, "ADF_res.npy"), 
-            {'data': ADF_res, 'columns': ['theta_deg', 'phi_deg', 'dw', 'Amp']}, 
-            allow_pickle=True)
+            {'data': ADF_res, 'columns': ['theta_deg', 'phi_deg', 'dw', 'Amp']}, {'loss': ADF_losses})
     
     print(f"\n[{time.time()-t0:.3f}s] ADF reconstruction done for {n_to_process} coincidences")
-    return ADF_res
+    return ADF_res, ADF_losses
 
 
 # ======================= Energy reconstruction ======================= #
@@ -1022,9 +980,9 @@ def main():
         print("\nComputing SWF...")
         if multi_processing:
             print(f"[MULTIPROCESSING] {n_to_process} SWF reconstruction with {mp.cpu_count()-1} CPUs...")
-            SWF_res = SWF_recons_mp(ncoincs, nants, antenna_coords_array, peak_time_array_s, PWF_res, file_path, verbose=verbose_bool, n_max=n_max)
+            SWF_res, SWF_losses = SWF_recons_mp(ncoincs, nants, antenna_coords_array, peak_time_array_s, PWF_res, file_path, verbose=verbose_bool, n_max=n_max)
         else:
-            SWF_res = SWF_recons(ncoincs, nants, antenna_coords_array, peak_time_array_s, PWF_res, file_path, verbose=verbose_bool, n_max=n_max)
+            SWF_res, SWF_losses = SWF_recons(ncoincs, nants, antenna_coords_array, peak_time_array_s, PWF_res, file_path, verbose=verbose_bool, n_max=n_max)
         print("[SWF computed]")
     else:
         SWF_res = np.load(os.path.join(file_path, files["SWF"]), allow_pickle=True).item()['data']
@@ -1035,9 +993,9 @@ def main():
         print("\nComputing ADF...")
         if multi_processing:
             print(f"[MULTIPROCESSING] {n_to_process} ADF reconstruction with {mp.cpu_count()-1} CPUs...")
-            ADF_res = ADF_recons_mp(ncoincs, nants, antenna_coords_array, peak_amp_array, PWF_res, SWF_res, file_path, verbose=verbose_bool, n_max=n_max)
+            ADF_res, ADF_losses = ADF_recons_mp(ncoincs, nants, antenna_coords_array, peak_amp_array, PWF_res, SWF_res, file_path, verbose=verbose_bool, n_max=n_max)
         else:
-            ADF_res = ADF_recons(ncoincs, nants, antenna_coords_array, peak_amp_array, PWF_res, SWF_res, file_path, verbose=verbose_bool, n_max=n_max)
+            ADF_res, ADF_losses = ADF_recons(ncoincs, nants, antenna_coords_array, peak_amp_array, PWF_res, SWF_res, file_path, verbose=verbose_bool, n_max=n_max)
         print("[SWF computed]")
     else:
         ADF_res = np.load(os.path.join(file_path, files["ADF"]), allow_pickle=True).item()['data']
