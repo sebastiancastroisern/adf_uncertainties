@@ -1,4 +1,5 @@
 # Imports
+from importlib.metadata import files
 import os
 import jax
 import time
@@ -9,7 +10,8 @@ import jax.numpy       as jnp
 import multiprocessing as mp
 import wavefronts.energy_jax          as ej
 import wavefronts.params_config       as pr
-import MCEq.geometry.density_profiles as dp
+import wavefronts.loader_txt          as lo
+# import wavefronts.Gram_Recons         as gr
 from tqdm            import tqdm
 from typing          import Tuple
 from iminuit         import minimize
@@ -18,13 +20,13 @@ from wavefronts.wavefronts_SEB import *
 
 # argparse setup
 parser = argparse.ArgumentParser(description='Cramer-Rao Bound computation for radio-detected air showers')
-parser.add_argument('--nmax'     , type=int, default=None, help='Maximum number of coincidences to process')
+parser.add_argument('--nmax'    ,type=int, default=None, help='Maximum number of coincidences to process')
 parser.add_argument('--filepath', type=str, default='./test_NJ/', help='Path to the input data files') # other exemple './addednoise_110uV_5antennas/'
 parser.add_argument('--test'   , action='store_true', help='Run all computes in test mode with a small dataset')
 parser.add_argument('--tout'   , action='store_true', help='Run all reconstructions and CRB computations')
 parser.add_argument('--gen'    , action='store_true', help='Regenerate .npy files from text data')
 parser.add_argument('--verbose', action='store_true', help='Enable verbose output during reconstructions')
-parser.add_argument('--multi'  , action='store_true', help='Enable multiprocessing for SWF reconstructions')
+parser.add_argument('--multi'  , action='store_false', help='Enable multiprocessing for SWF reconstructions. Default is True (multiprocessing enabled)')
 parser.add_argument('--savemat', action='store_false', help='Save Fisher information matrices as .npy files')
 args = parser.parse_args()
 
@@ -35,15 +37,17 @@ if not hasattr(np, 'infty'):
 
 # ======================= Miscellaneous ======================== #
 
-def npy_files_builder(file_path: str) -> None:
+def npy_files_builder(file_path: str, data_filepath: str) -> None:
     """ Construction des fichiers .npy à partir des fichiers texte d'entrée
     Inputs:
         file_path: path to the input data files
+        data_filepath: path to the data files (e.g., './test_NJ/')
     Outputs:
         Saves .npy files in the specified file_path 
     """
     print("Building .npy files from text data...")
 
+    if not os.path.exists(data_filepath): os.makedirs(data_filepath)
     position_file = file_path + "/coord_antennas.txt"
     coinc_file    = file_path + "/Rec_coinctable.txt"
 
@@ -82,20 +86,20 @@ def npy_files_builder(file_path: str) -> None:
         co_pa[k, :n]  = amp[m]
 
     # --- Sauvegardes ---
-    np.save(file_path+"/an_indices.npy",idx)
-    np.save(file_path+"/an_coordinates.npy",coords)
-    np.save(file_path+"/an_init_ant.npy",init)
-    np.save(file_path+"/an_nants.npy",len(idx))
+    np.save(data_filepath+"/an_indices.npy",idx)
+    np.save(data_filepath+"/an_coordinates.npy",coords)
+    np.save(data_filepath+"/an_init_ant.npy",init)
+    np.save(data_filepath+"/an_nants.npy",len(idx))
 
-    np.save(file_path+"/co_ncoincs.npy", np.array([nco], dtype=np.float64))
-    np.save(file_path+"/co_nants.npy",nants)
-    np.save(file_path+"/co_nantsmax.npy",nmax)
-    np.save(file_path+"/co_antenna_index_array.npy",co_ai)
-    np.save(file_path+"/co_antenna_coords_array.npy",co_ac)
-    np.save(file_path+"/co_coinc_index_array.npy",co_ci)
-    np.save(file_path+"/co_peak_time_array.npy",co_pt) # in m
-    np.save(file_path+"/co_peak_time_array_in_s.npy",co_pts) # in s
-    np.save(file_path+"/co_peak_amp_array.npy",co_pa)
+    np.save(data_filepath+"/co_ncoincs.npy", np.array([nco], dtype=np.float64))
+    np.save(data_filepath+"/co_nants.npy",nants)
+    np.save(data_filepath+"/co_nantsmax.npy",nmax)
+    np.save(data_filepath+"/co_antenna_index_array.npy",co_ai)
+    np.save(data_filepath+"/co_antenna_coords_array.npy",co_ac)
+    np.save(data_filepath+"/co_coinc_index_array.npy",co_ci)
+    np.save(data_filepath+"/co_peak_time_array.npy",co_pt) # in m
+    np.save(data_filepath+"/co_peak_time_array_in_s.npy",co_pts) # in s
+    np.save(data_filepath+"/co_peak_amp_array.npy",co_pa)
     pass
 
 def build_Xsource(alpha_rad: float, beta_rad: float, r_xmax: float) -> np.ndarray:
@@ -141,9 +145,63 @@ def build_K_vector(theta: float, phi: float) -> np.ndarray:
 
     return K
 
+def build_result_dataframe(file_path: str= args.filepath, nmax: int=None) -> pd.DataFrame:
+    """ Build a pandas DataFrame from the reconstruction results and CRB computations
+    Inputs:
+        PWF_res: array containing PWF reconstruction results
+        SWF_res: array containing SWF reconstruction results
+        ADF_res: array containing ADF reconstruction results
+        CRB_res: array containing CRB results
+        cov_mats: array containing Fisher information matrices
+    Outputs:        
+        df: pandas DataFrame containing all results
+    """
+
+    if file_path.endswith('AN3-08_dec_25') or file_path.endswith('test_AN3') or file_path.endswith('test_NJ') or file_path.endswith('DC2_Training_L1'):
+        df_temp = pd.read_csv(os.path.join(file_path, "input_simus.txt"), comment="#", sep=r'\s+', header=None, usecols=[1, 2, 3, 5, 6, 7, 8, 9, 10, 15], 
+                        names=['true_theta', 'true_phi', 'Primary_energy', 'Nature_primary', 'XmaxDistance', 'gramage', 'x_Xmax', 'y_Xmax', 'z_Xmax', 'Number_triggered_antennas'])
+    else:
+        df_temp = pd.read_csv(os.path.join(file_path, "input_simus.txt"), comment="#", sep=r'\s+', header=None, usecols=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], 
+                        names=['true_theta', 'true_phi', 'Primary_energy', 'Em_energy', 'Nature_primary', 'XmaxDistance', 'gramage', 'x_Xmax', 'y_Xmax', 'z_Xmax', 'Number_triggered_antennas'])
+    
+    if nmax is not None:
+        df_temp = df_temp.iloc[:nmax]
+
+    return df_temp
+
+def add_df_columns(df: pd.DataFrame, SWF_res: np.ndarray=None, ADF_res: np.ndarray=None, CRB_res: np.ndarray=None, energies: np.ndarray=None, energies_uncertainty: np.ndarray=None) -> pd.DataFrame:
+    """ Add columns to the DataFrame with reconstruction results
+    Inputs:
+        df: pandas DataFrame
+        SWF_res: array containing SWF reconstruction results
+        ADF_res: array containing ADF reconstruction results
+        CRB_res: array containing CRB results
+        energies: array containing reconstructed energies
+        energies_uncertainty: array containing uncertainties on reconstructed energies
+    Outputs:
+        df: pandas DataFrame with added columns
+    """
+    if SWF_res is not None:
+        new_cols = np.array([[SWF_res[i][0], SWF_res[i][1], SWF_res[i][2], SWF_res[i][3]] for i in range(len(SWF_res))])
+        df[['recons_alpha', 'recons_beta', 'recons_rxmax', 'recons_t0']] = new_cols
+
+    if ADF_res is not None:
+        new_cols = np.array([[ADF_res[i][0], ADF_res[i][1], ADF_res[i][2], ADF_res[i][3]] for i in range(len(ADF_res))])
+        df[['recons_theta', 'recons_phi', 'recons_delta_omega', 'recons_amplitude']] = new_cols
+
+    if CRB_res is not None:
+        new_cols = np.array([[CRB_res[i][0], CRB_res[i][1], CRB_res[i][2], CRB_res[i][3], CRB_res[i][4], CRB_res[i][5], CRB_res[i][6], CRB_res[i][7]] for i in range(len(CRB_res))])
+        df[['stds_alpha', 'stds_beta', 'stds_rxmax', 'stds_t0', 'stds_theta', 'stds_phi', 'stds_delta_omega', 'stds_amplitude']] = new_cols
+
+    if energies is not None and energies_uncertainty is not None:
+        new_cols = np.array([[energies[i], energies_uncertainty[i]] for i in range(len(energies))])
+        df[['recons_energy', 'recons_energy_uncertainty']] = new_cols
+
+    return df
+
 # ============================ PWF ============================ #
 
-def PWF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray, peak_time_array: np.ndarray, file_path: str, n_max: int=None, verbose: bool=False) -> np.ndarray:
+def PWF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray, peak_time_array: np.ndarray, n_max: int=None, verbose: bool=False) -> np.ndarray:
     """ PWF reconstruction for all coincidences
     Inputs:
         ncoincs: number of coincidences
@@ -160,7 +218,7 @@ def PWF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray
     rad2deg = 180.0 / np.pi
     PWF_res = np.zeros((n_to_process, 2))  # theta, phi in degrees
 
-    for i in tqdm(range(n_to_process), desc='PWF in progress...'):
+    for i in range(n_to_process):
         try:
             # print(f"Value of tants for coincidence {i}: {peak_time_array[i,:nants[i]]}")
             theta_PWF_rad, phi_PWF_rad = PWF_minimize_alternate_loss_norm(antenna_coords_array[i,:nants[i]], peak_time_array[i,:nants[i]], verbose)
@@ -175,8 +233,7 @@ def PWF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray
             PWF_res[i,0] = np.nan
             PWF_res[i,1] = np.nan
 
-    print(f"\n[{time.time()-t0:.3f}s] Plane Wave Fit reconstruction done for {n_to_process} coincidences")
-    np.save(os.path.join(file_path, "PWF_res.npy"), {'data': PWF_res, 'columns': ['theta_deg', 'phi_deg']}, allow_pickle=True)
+    print(f"[{time.time()-t0:.3f}s] Plane Wave Fit reconstruction done for {n_to_process} coincidences")
     return PWF_res
 
 
@@ -218,7 +275,7 @@ def SWF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray
                 SWF_res[i,:] = np.nan
         
         print(f"\n[{time.time()-t0:.3f}s] Spherical Wave Fit reconstruction done for {n_to_process} coincidences")
-        np.save(os.path.join(file_path, "SWF_res.npy"), {'data': SWF_res, 'columns': ['alpha_deg', 'beta_deg', 'rxmax', 't0']}, {'loss': SWF_losses})
+        # np.save(os.path.join(file_path, "SWF_res.npy"), {'data': SWF_res, 'columns': ['alpha_deg', 'beta_deg', 'rxmax', 't0'], 'loss': SWF_losses})
 
         return SWF_res, SWF_losses
 
@@ -339,8 +396,8 @@ def SWF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndar
     print(f"\n[{time.time()-t1:.3f}s] SWF reconstruction done for {n_to_process} coincidences")
     
     # Save as .npy only
-    np.save(os.path.join(file_path, "SWF_res.npy"), 
-            {'data': SWF_res, 'columns': ['alpha_deg', 'beta_deg', 'rxmax', 't0']}, {'loss': SWF_losses})
+    # np.save(os.path.join(file_path, "SWF_res.npy"), 
+    #         {'data': SWF_res, 'columns': ['alpha_deg', 'beta_deg', 'rxmax', 't0'], 'loss': SWF_losses})
     
     return SWF_res, SWF_losses
 
@@ -385,8 +442,8 @@ def ADF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray
         ADF_losses[i] = loss
 
     print(f"[{time.time()-t0:.3f}s] ADF done for {n_to_process} coincidences")
-    np.save(os.path.join(file_path, "ADF_res.npy"), 
-            {'data': ADF_res, 'columns': ['theta_deg','phi_deg','dw','Amp']}, {'loss': ADF_losses})
+    # np.save(os.path.join(file_path, "ADF_res.npy"), 
+            # {'data': ADF_res, 'columns': ['theta_deg','phi_deg','dw','Amp'], 'loss': ADF_losses})
     return ADF_res, ADF_losses
 
 def ADF_single_recon(i: int, theta_PWF_rad: float, phi_PWF_rad: float, rx_max: float, alpha_rad: float, beta_rad: float, ant_coords: np.ndarray, peak_amp_arr: np.ndarray, verbose: bool=False) -> Tuple[int, float, float, float, float]:
@@ -510,8 +567,8 @@ def ADF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndar
     del results
     
     # Save as .npy only
-    np.save(os.path.join(file_path, "ADF_res.npy"), 
-            {'data': ADF_res, 'columns': ['theta_deg', 'phi_deg', 'dw', 'Amp']}, {'loss': ADF_losses})
+    # np.save(os.path.join(file_path, "ADF_res.npy"), 
+            # {'data': ADF_res, 'columns': ['theta_deg', 'phi_deg', 'dw', 'Amp'], 'loss': ADF_losses})
     
     print(f"\n[{time.time()-t0:.3f}s] ADF reconstruction done for {n_to_process} coincidences")
     return ADF_res, ADF_losses
@@ -558,9 +615,9 @@ def recons_energy_all_cov(ncoincs: int, ADF_deg: np.ndarray, SWF_deg: np.ndarray
         if verbose:
             print(f"Coincidence {i}: Energy = {energies[i]:.3e} EeV ± {energies_uncertainty[i]:.3e} EeV")
     
-    np.save(os.path.join(output_path, "energies.npy"), {'energies': energies*1e18, 'uncertainties': energies_uncertainty*1e18, 'columns': ['energy_eV', 'energy_uncertainty_eV']}, allow_pickle=True)
+    # np.save(os.path.join(output_path, "energies.npy"), {'energies': energies*1e18, 'uncertainties': energies_uncertainty*1e18, 'columns': ['energy_eV', 'energy_uncertainty_eV']}, allow_pickle=True)
 
-    # return energies, energies_uncertainty
+    return energies, energies_uncertainty
 
 def recons_energy_all_crb(ncoincs: int, ADF_deg: np.ndarray, SWF_deg: np.ndarray, CRB_res: np.ndarray, output_path: str, csv_file_path: str=pr.csv_coeff_corr, verbose: bool=False, n_max: int=None) -> np.ndarray:
     """ Function reconstructing the energy for all coincidences
@@ -611,9 +668,9 @@ def recons_energy_all_crb(ncoincs: int, ADF_deg: np.ndarray, SWF_deg: np.ndarray
     print(f"\n[{time.time()-t0:.3f}s] Energy reconstruction done for {ncoincs} coincidences")
     print(f"Percentages of negative energies: {(energies < 0).sum() / ncoincs * 100:.2f}%")
     
-    np.save(os.path.join(output_path, "energies.npy"), {'energies': energies*1e18, 'uncertainties': energies_uncertainty*1e18, 'columns': ['energy_eV', 'energy_uncertainty_eV']}, allow_pickle=True)
+    # np.save(os.path.join(output_path, "energies.npy"), {'energies': energies*1e18, 'uncertainties': energies_uncertainty*1e18, 'columns': ['energy_eV', 'energy_uncertainty_eV']}, allow_pickle=True)
 
-    # return energies, energies_uncertainty
+    return energies, energies_uncertainty
 
 
 # ======================= CRB of ADF + SWF ======================= #
@@ -732,14 +789,14 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
         
     print(f"\n[{time.time()-t0:.3f}s] ADF + SWF CRB done for {n_to_process} coincidences with {cpt} singular matrices")
     
-    np.save(os.path.join(file_path, "CRB_res.npy"), 
-            {'data': stds, 'columns': ['std_alpha_deg', 'std_beta_deg', 'std_rxmax', 'std_t0', 'std_theta_deg', 'std_phi_deg', 'std_dw', 'std_Amp']}, 
-            allow_pickle=True)
+    # np.save(os.path.join(file_path, "CRB_res.npy"), 
+    #         {'data': stds, 'columns': ['std_alpha_deg', 'std_beta_deg', 'std_rxmax', 'std_t0', 'std_theta_deg', 'std_phi_deg', 'std_dw', 'std_Amp']}, 
+    #         allow_pickle=True)
     
-    if save_mat:
-        np.save(os.path.join(file_path, "CRB_fisher_matrices.npy"), 
-                {'data': cov_mats}, 
-                allow_pickle=True)
+    # if save_mat:
+    #     np.save(os.path.join(file_path, "CRB_fisher_matrices.npy"), 
+    #             {'data': cov_mats}, 
+    #             allow_pickle=True)
     return stds, cov_mats
 
 def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_res: np.ndarray, ADF_res: np.ndarray, file_path: str, n_max: int=None, verbose: bool=False, save_mat:bool=False) -> np.ndarray:
@@ -840,10 +897,10 @@ def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_re
             {'data': stds, 'columns': ['std_theta_deg', 'std_phi_deg', 'std_dw', 'std_Amp']}, 
             allow_pickle=True)
     
-    if save_mat:
-        np.save(os.path.join(file_path, "CRB_ADF_only_fisher_matrices.npy"), 
-                {'data': cov_mats}, 
-                allow_pickle=True)
+    # if save_mat:
+    #     np.save(os.path.join(file_path, "CRB_ADF_only_fisher_matrices.npy"), 
+    #             {'data': cov_mats}, 
+    #             allow_pickle=True)
     return stds, cov_mats
 
 def PWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, PWF_res: np.ndarray, file_path: str, n_max: int=None, verbose: bool=False):
@@ -907,9 +964,29 @@ def PWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, PWF_re
     
     print(f"\n[{time.time()-t0:.3f}s] PWF CRB done for {n_to_process} coincidences with {cpt} singular matrices")
 
-    np.save(os.path.join(file_path, "PWF_CRB_res.npy"), 
-            {'data': stds, 'columns': ['std_theta_deg', 'std_phi_deg']}, 
-            allow_pickle=True)
+    # np.save(os.path.join(file_path, "PWF_CRB_res.npy"), 
+            # {'data': stds, 'columns': ['std_theta_deg', 'std_phi_deg']}, 
+            # allow_pickle=True)
+
+# ======================= GRAMAMGE ======================= #
+
+# def grammage_reconsrtuction(df_results: pd.DataFrame) -> pd.DataFrame:
+
+#     """ Function reconstructing the grammage for all coincidences
+#     Inputs:
+#         df_results: dataframe containing the reconstruction results (in degrees)
+#     Outputs:
+#         df_results: dataframe with added grammage column (in g/cm^2) """
+    
+#     SWF_deg = df_results[["recons_alpha", "recons_beta", "recons_rxmax", "recons_t0"]].values
+#     SWF_rad = SWF_deg.copy()
+#     SWF_rad[:, :2] *= np.pi / 180.0
+
+#     grammages = gr.compute_grammage_vectorized(SWF_deg,SWF_rad)
+
+#     return grammages
+
+
 
 # ============================ Main ============================ #
 
@@ -923,57 +1000,43 @@ def main():
     verbose_bool     = False if not args.verbose else True
 
     # Coincidence set loading
-    file_path              = args.filepath
+    file_path      = args.filepath
+    data_file_path = os.path.join(file_path,'data_npy')
+
     print(f"-------------- Looking for input files -----------------\nUsing data from: {file_path}")
-    if not os.path.exists(os.path.join(file_path,'co_ncoincs.npy')) or npy_gen_bool == True : # If files do not exist or position file has not been modified recently
+    if not os.path.exists(os.path.join(data_file_path,'co_ncoincs.npy')) or npy_gen_bool == True : # If files do not exist or position file has not been modified recently
         print("Preprocessing input data...")
-        npy_files_builder(file_path)
+        npy_files_builder(file_path, data_file_path)
         print("Input data preprocessing done.")
 
     print("Loading coincidence data...")
-    nants                =     np.load(os.path.join(file_path,'co_nants.npy'))
-    antenna_coords_array =     np.load(os.path.join(file_path,'co_antenna_coords_array.npy'))
-    peak_time_array_m    =     np.load(os.path.join(file_path,'co_peak_time_array.npy'))
-    peak_time_array_s    =     np.load(os.path.join(file_path,'co_peak_time_array_in_s.npy'))
-    peak_amp_array       =     np.load(os.path.join(file_path,'co_peak_amp_array.npy'))
-    ncoincs              = int(np.load(os.path.join(file_path,'co_ncoincs.npy'))[0])
-    # convert in float32 and int32 for faster processing
-    antenna_coords_array = antenna_coords_array.astype(np.float64)
-    peak_time_array_m    = peak_time_array_m.astype(np.float64)
-    peak_time_array_s    = peak_time_array_s.astype(np.float64)
-    peak_amp_array       = peak_amp_array.astype(np.float64)
-    nants                = nants.astype(np.int32)
+    # Load data from .npy files
+    nants, antenna_coords_array, peak_time_array_m, peak_time_array_s, peak_amp_array, ncoincs = lo.load_data_files_np(file_path)
     n_to_process = min(ncoincs, n_max) if args.nmax is not None else ncoincs
-    print(f"Loaded {n_to_process} coincidences.\n")
 
+    # Build results dataframe
+    if not os.path.exists(os.path.join(file_path, 'results_dataframe.parquet')) or args.test:
+        results_df = build_result_dataframe(file_path=file_path, nmax = n_max)
+    else:
+        results_df = pd.read_parquet(os.path.join(file_path, 'results_dataframe.parquet'))
+    
     file_path = args.filepath if not args.test else os.path.join(args.filepath, 'CRB_test/')
     if not os.path.exists(file_path): os.makedirs(file_path)
+    print(f"Loaded {n_to_process} coincidences but computing only {n_to_process}.\n")
 
-    files = {"PWF": "PWF_res.npy",
-             "CRB": "CRB_res.npy",
-             "SWF": "SWF_res.npy",
-             "ADF": "ADF_res.npy",
-             "CRB_ADF_only": "CRB_ADF_only_res.npy"}
-    
-    # Check séquentiel
-    run_PWF = run_SWF = run_ADF = True
-    if os.path.exists(os.path.join(file_path, files['PWF'])): run_PWF = False
-    if os.path.exists(os.path.join(file_path, files["SWF"])): run_SWF = False
-    if os.path.exists(os.path.join(file_path, files["ADF"])): run_ADF = False
-
-    # Forcer CRB si demandé
-    if args.test or args.tout : run_SWF = run_ADF = True
+    # Looking for existing CRB, SWF and ADF results to avoid recomputation if not necessary
+    run_SWF = run_ADF = True
+    if 'recons_theta' in results_df.columns : run_ADF = False
+    if 'recons_alpha' in results_df.columns : run_SWF = False 
+    if 'stds_rxmax'   in results_df.columns : run_CRB = False
+    if not os.path.exists(os.path.join(file_path, 'results_dataframe.parquet')) or (os.path.getmtime(os.path.join(file_path, 'results_dataframe.parquet')) - time.time()) > 7*24*3600: run_CRB = run_SWF = run_ADF = True
+    if args.tout : run_SWF = run_ADF = run_CRB = True # Forcer CRB si demandé
     
     print('-------------- Starting CRB Calculations --------------')
 
-    # --- Load or compute PWF ---
-    if run_PWF:
-        print("\nComputing PWF...") 
-        PWF_res = PWF_recons(ncoincs, nants, antenna_coords_array, peak_time_array_m, file_path, n_max=n_max, verbose=verbose_bool)
-        print("[PWF Computed]")
-    else:
-        PWF_res = np.load(os.path.join(file_path, files['PWF']), allow_pickle=True).item()['data']
-        print("[PWF loaded]")
+    # --- Compute PWF ---
+    PWF_res = PWF_recons(ncoincs, nants, antenna_coords_array, peak_time_array_m, n_max=n_max, verbose=verbose_bool)
+    print("[PWF Computed]")
 
     # --- Load or compute SWF ---
     if run_SWF:
@@ -983,10 +1046,13 @@ def main():
             SWF_res, SWF_losses = SWF_recons_mp(ncoincs, nants, antenna_coords_array, peak_time_array_s, PWF_res, file_path, verbose=verbose_bool, n_max=n_max)
         else:
             SWF_res, SWF_losses = SWF_recons(ncoincs, nants, antenna_coords_array, peak_time_array_s, PWF_res, file_path, verbose=verbose_bool, n_max=n_max)
+        # add results to dataframe
+        results_df = add_df_columns(results_df, SWF_res=SWF_res)
         print("[SWF computed]")
     else:
-        SWF_res = np.load(os.path.join(file_path, files["SWF"]), allow_pickle=True).item()['data']
+        SWF_res = results_df[['recons_alpha_deg', 'recons_beta_deg', 'recons_rxmax', 'recons_t0']].values
         print("[SWF loaded]")
+
 
     # --- Load or compute ADF ---
     if run_ADF:
@@ -996,34 +1062,36 @@ def main():
             ADF_res, ADF_losses = ADF_recons_mp(ncoincs, nants, antenna_coords_array, peak_amp_array, PWF_res, SWF_res, file_path, verbose=verbose_bool, n_max=n_max)
         else:
             ADF_res, ADF_losses = ADF_recons(ncoincs, nants, antenna_coords_array, peak_amp_array, PWF_res, SWF_res, file_path, verbose=verbose_bool, n_max=n_max)
-        print("[SWF computed]")
+        print("[ADF computed]")
+        results_df = add_df_columns(results_df, ADF_res=ADF_res)
     else:
-        ADF_res = np.load(os.path.join(file_path, files["ADF"]), allow_pickle=True).item()['data']
+        ADF_res = results_df[['recons_theta', 'recons_phi', 'recons_dw', 'recons_amp']].values
         print("[ADF loaded]")
+
 
     # --- Compute CRB ---
 
-
-    if not os.path.exists(os.path.join(file_path, files['CRB'])) or not os.path.exists(os.path.join(file_path, files['CRB_ADF_only'])) or (os.path.getmtime(os.path.join(file_path, files['CRB'])) - time.time()) > 7*24*3600:
-
-        print("\nComputing CRB for PWF...")
-        PWF_CRB(ncoincs, nants, antenna_coords_array, PWF_res, file_path, n_max=n_max, verbose=verbose_bool)
-
+    if run_CRB:
         print("\nComputing CRB for ADF + SWF...")
         CRB_res, cov_mats = ADF_SWF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, n_max=n_max, verbose=verbose_bool, save_mat=args.savemat)
 
         CRB_ADF_only, cov_mats_ADF_only = ADF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, n_max=n_max, verbose=verbose_bool, save_mat=args.savemat)
+        results_df = add_df_columns(results_df, CRB_res=CRB_res)
     
     else: 
-        CRB_res = np.load(os.path.join(file_path, "CRB_res.npy"), allow_pickle=True).item()['data']
-        cov_mats = np.load(os.path.join(file_path, "CRB_fisher_matrices.npy"), allow_pickle=True).item()['data']
+        CRB_res = results_df[['stds_alpha', 'stds_beta', 'stds_rxmax', 'stds_t0', 'stds_theta', 'stds_phi', 'stds_dw', 'stds_amp']].values
+
 
     print('\n-------------- Starting Energy Reconstruction --------------')
 
     # --- Compute energy estimates ---
     print("\nComputing energy estimates from ADF results...")
 
-    recons_energy_all_crb(ncoincs, ADF_res, SWF_res, CRB_res, file_path, csv_file_path=pr.csv_coeff_corr, verbose=verbose_bool, n_max=n_max)
+    energies, energies_uncertainty = recons_energy_all_crb(ncoincs, ADF_res, SWF_res, CRB_res, file_path, csv_file_path=pr.csv_coeff_corr, verbose=verbose_bool, n_max=n_max)
+
+    results_df = add_df_columns(results_df, energies=energies, energies_uncertainty=energies_uncertainty)
+    results_df.to_parquet(os.path.join(file_path, "results_df.parquet"))
+
     print("\nAll done.")
 
 if __name__ == "__main__":

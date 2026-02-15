@@ -35,6 +35,7 @@ args = parser.parse_args()
 # ---------- Parameters ----------
 
 file_path = args.filepath                         # Path to data files
+data_file_path = os.path.join(file_path,'data_npy') # Path to .npy data files
 n_max     = args.nmax  if not args.test else 2    # Max number of coincidences to process
 n_iter_v  = args.niter if not args.test else 100 # Number of MCMC iterations per coincidence
 n_burnin_v  = args.nburnin if not args.test else 100  # Number of burn-in iterations to discard
@@ -83,7 +84,7 @@ def build_Xmax(swf_data: np.ndarray) -> np.ndarray:
     
     return Xmax
 
-def load_shower_data(file_path: str, coinc_idx: int) -> Tuple[np.ndarray, Tuple]:
+def load_shower_data(file_path: str, data_file_path: str, coinc_idx: int) -> Tuple[np.ndarray, Tuple]:
     """Load using memmap for efficient indexing"""
     if not os.path.exists(os.path.join(file_path, "SWF_array.npy")) or not os.path.exists(os.path.join(file_path, "ADF_array.npy")):
         restructure_data(file_path)
@@ -100,13 +101,13 @@ def load_shower_data(file_path: str, coinc_idx: int) -> Tuple[np.ndarray, Tuple]
     swf_adf_params[4] *= np.pi / 180  # theta_ADF to rad
     swf_adf_params[5] *= np.pi / 180  # phi_ADF to rad
     
-    nants = np.load(os.path.join(file_path, "co_nants.npy"), 
+    nants = np.load(os.path.join(data_file_path, "co_nants.npy"), 
                     mmap_mode='r')[coinc_idx]
-    peak_amp = np.load(os.path.join(file_path, "co_peak_amp_array.npy"),
+    peak_amp = np.load(os.path.join(data_file_path, "co_peak_amp_array.npy"),
                        mmap_mode='r')[coinc_idx, :nants].copy()
-    ant_coords = np.load(os.path.join(file_path, "co_antenna_coords_array.npy"),
+    ant_coords = np.load(os.path.join(data_file_path, "co_antenna_coords_array.npy"),
                          mmap_mode='r')[coinc_idx, :nants].copy()
-    tants = np.load(os.path.join(file_path, "co_peak_time_array.npy"),
+    tants = np.load(os.path.join(data_file_path, "co_peak_time_array.npy"),
                     mmap_mode='r')[coinc_idx, :nants].copy()
     
     params = swf_adf_params
