@@ -53,6 +53,7 @@ The code should generate you a dozen of `.npy` files (saved in `data_npy`) to be
 - for ADF '`recons_theta`', '`recons_phi`', '`recons_delta_omega`', '`recons_amplitude`' and '`ADF_loss`' 
 - for CRB : '`stds_alpha`', '`stds_beta`', '`stds_rxmax`', '`stds_t0`', '`stds_theta`', '`stds_phi`', '`stds_delta_omega`', '`stds_amplitude`'
 - for energy calculations: '`recons_energy`', '`recons_energy_uncertainty`'
+- for grammage calculations: '`recons_grammage`'
 
 The `MCMC.py` can either give you back a file with all the samples and logprob values (`emcee_samples_res.h5`) if you chose to run it sequentially (to save up memory), or simply give back the mode of the distribution (`emcee_modes_res.h5`) if you decide to run it with multiprocessing. 
 For the **modes** : An HDF5 file containing a mcmc_emcee_results group with one sub-group per coincidence (coinc_XXXXX), storing only the MCMC mode vector and lightweight metadata.
