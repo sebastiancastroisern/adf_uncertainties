@@ -8,10 +8,11 @@ import numpy           as np
 import pandas          as pd
 import jax.numpy       as jnp
 import multiprocessing as mp
+import MCEq.geometry.density_profiles as dp
 import wavefronts.energy_jax          as ej
 import wavefronts.params_config       as pr
 import wavefronts.loader_txt          as lo
-# import wavefronts.Gram_Recons         as gr
+import wavefronts.Gram_Recons         as gr
 from tqdm            import tqdm
 from typing          import Tuple
 from iminuit         import minimize
@@ -169,7 +170,7 @@ def build_result_dataframe(file_path: str= args.filepath, nmax: int=None) -> pd.
 
     return df_temp
 
-def add_df_columns(df: pd.DataFrame, SWF_res: np.ndarray=None, SWF_loss: np.ndarray=None, ADF_res: np.ndarray=None, ADF_loss: np.ndarray=None, CRB_res: np.ndarray=None, energies: np.ndarray=None, energies_uncertainty: np.ndarray=None) -> pd.DataFrame:
+def add_df_columns(df: pd.DataFrame, SWF_res: np.ndarray=None, SWF_loss: np.ndarray=None, ADF_res: np.ndarray=None, ADF_loss: np.ndarray=None, CRB_res: np.ndarray=None, energies: np.ndarray=None, energies_uncertainty: np.ndarray=None, grammages: np.ndarray=None) -> pd.DataFrame:
     """ Add columns to the DataFrame with reconstruction results
     Inputs:
         df: pandas DataFrame
@@ -180,6 +181,7 @@ def add_df_columns(df: pd.DataFrame, SWF_res: np.ndarray=None, SWF_loss: np.ndar
         CRB_res: array containing CRB results
         energies: array containing reconstructed energies
         energies_uncertainty: array containing uncertainties on reconstructed energies
+        grammages: array containing reconstructed grammages
     Outputs:
         df: pandas DataFrame with added columns
     """
@@ -204,6 +206,9 @@ def add_df_columns(df: pd.DataFrame, SWF_res: np.ndarray=None, SWF_loss: np.ndar
     if energies is not None and energies_uncertainty is not None:
         new_cols = np.array([[energies[i], energies_uncertainty[i]] for i in range(len(energies))])
         df[['recons_energy', 'recons_energy_uncertainty']] = new_cols
+
+    if grammages is not None:
+        df['recons_grammage'] = grammages
 
     return df
 
@@ -978,21 +983,25 @@ def PWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, PWF_re
 
 # ======================= GRAMAMGE ======================= #
 
-# def grammage_reconsrtuction(df_results: pd.DataFrame) -> pd.DataFrame:
+def grammage_reconsrtuction(df_results: pd.DataFrame) -> pd.DataFrame:
 
-#     """ Function reconstructing the grammage for all coincidences
-#     Inputs:
-#         df_results: dataframe containing the reconstruction results (in degrees)
-#     Outputs:
-#         df_results: dataframe with added grammage column (in g/cm^2) """
+    """ Function reconstructing the grammage for all coincidences
+    Inputs:
+        df_results: dataframe containing the reconstruction results (in degrees)
+    Outputs:
+        df_results: dataframe with added grammage column (in g/cm^2) """
     
-#     SWF_deg = df_results[["recons_alpha", "recons_beta", "recons_rxmax", "recons_t0"]].values
-#     SWF_rad = SWF_deg.copy()
-#     SWF_rad[:, :2] *= np.pi / 180.0
+    SWF_deg = df_results[["recons_alpha", "recons_beta", "recons_rxmax", "recons_t0"]].values
+    SWF_rad = SWF_deg.copy()
+    SWF_rad[:, :2] *= np.pi / 180.0
+    SWF_deg, SWF_rad = np.array(SWF_deg), np.array(SWF_rad)
+    std_atm = dp.CorsikaAtmosphere('USStd')
 
-#     grammages = gr.compute_grammage_vectorized(SWF_deg,SWF_rad)
+    Xmax         = gr.compute_Xmax(SWF_rad)
+    Xmax_heights = gr.conversion_to_enu_numpy(Xmax)
+    grammages    = gr.compute_grammage_numpy(Xmax_heights, SWF_deg, std_atm)
 
-#     return grammages
+    return grammages
 
 
 
@@ -1033,11 +1042,12 @@ def main():
     print(f"Loaded {n_to_process} coincidences but computing only {n_to_process}.\n")
 
     # Looking for existing CRB, SWF and ADF results to avoid recomputation if not necessary
-    run_SWF = run_ADF = True
+    run_SWF = run_ADF = run_CRB = True
     if 'recons_theta' in results_df.columns : run_ADF = False
     if 'recons_alpha' in results_df.columns : run_SWF = False 
     if 'stds_rxmax'   in results_df.columns : run_CRB = False
-    if not os.path.exists(os.path.join(file_path, 'results_dataframe.parquet')) or (os.path.getmtime(os.path.join(file_path, 'results_dataframe.parquet')) - time.time()) > 7*24*3600: run_CRB = run_SWF = run_ADF = True
+    if not os.path.exists(os.path.join(file_path, 'results_dataframe.parquet')): # or (os.path.getmtime(os.path.join(file_path, 'results_dataframe.parquet')) - time.time()) > 7*24*3600: 
+        run_CRB = run_SWF = run_ADF = True
     if args.tout : run_SWF = run_ADF = run_CRB = True # Forcer CRB si demandé
     
     print('-------------- Starting CRB Calculations --------------')
@@ -1058,7 +1068,7 @@ def main():
         results_df = add_df_columns(results_df, SWF_res=SWF_res, SWF_loss=SWF_losses)
         print("[SWF computed]")
     else:
-        SWF_res = results_df[['recons_alpha_deg', 'recons_beta_deg', 'recons_rxmax', 'recons_t0']].values
+        SWF_res = results_df[['recons_alpha', 'recons_beta', 'recons_rxmax', 'recons_t0']].values
         print("[SWF loaded]")
 
 
@@ -1073,7 +1083,7 @@ def main():
         print("[ADF computed]")
         results_df = add_df_columns(results_df, ADF_res=ADF_res, ADF_loss=ADF_losses)
     else:
-        ADF_res = results_df[['recons_theta', 'recons_phi', 'recons_dw', 'recons_amp']].values
+        ADF_res = results_df[['recons_theta', 'recons_phi', 'recons_delta_omega', 'recons_amplitude']].values
         print("[ADF loaded]")
 
 
@@ -1087,7 +1097,7 @@ def main():
         results_df = add_df_columns(results_df, CRB_res=CRB_res)
     
     else: 
-        CRB_res = results_df[['stds_alpha', 'stds_beta', 'stds_rxmax', 'stds_t0', 'stds_theta', 'stds_phi', 'stds_dw', 'stds_amp']].values
+        CRB_res = results_df[['stds_alpha', 'stds_beta', 'stds_rxmax', 'stds_t0', 'stds_theta', 'stds_phi', 'stds_delta_omega', 'stds_amplitude']].values
 
 
     print('\n-------------- Starting Energy Reconstruction --------------')
@@ -1098,7 +1108,15 @@ def main():
     energies, energies_uncertainty = recons_energy_all_crb(ncoincs, ADF_res, SWF_res, CRB_res, file_path, csv_file_path=pr.csv_coeff_corr, verbose=verbose_bool, n_max=n_max)
 
     results_df = add_df_columns(results_df, energies=energies, energies_uncertainty=energies_uncertainty)
-    results_df.to_parquet(os.path.join(file_path, "results_df.parquet"))
+    results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet"))
+
+    print('\n-------------- Starting Grammage Reconstruction --------------')
+
+    # --- Compute grammage estimates ---
+    print("\nComputing grammage estimates from SWF results...")
+    grammages = grammage_reconsrtuction(results_df)
+    results_df = add_df_columns(results_df, grammages=grammages)
+
 
     print("\nAll done.")
 
