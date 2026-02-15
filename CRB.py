@@ -1106,9 +1106,7 @@ def main():
     print("\nComputing energy estimates from ADF results...")
 
     energies, energies_uncertainty = recons_energy_all_crb(ncoincs, ADF_res, SWF_res, CRB_res, file_path, csv_file_path=pr.csv_coeff_corr, verbose=verbose_bool, n_max=n_max)
-
     results_df = add_df_columns(results_df, energies=energies, energies_uncertainty=energies_uncertainty)
-    results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet"))
 
     print('\n-------------- Starting Grammage Reconstruction --------------')
 
@@ -1117,7 +1115,7 @@ def main():
     grammages = grammage_reconsrtuction(results_df)
     results_df = add_df_columns(results_df, grammages=grammages)
 
-
+    results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet"))
     print("\nAll done.")
 
 if __name__ == "__main__":
