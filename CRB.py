@@ -169,12 +169,14 @@ def build_result_dataframe(file_path: str= args.filepath, nmax: int=None) -> pd.
 
     return df_temp
 
-def add_df_columns(df: pd.DataFrame, SWF_res: np.ndarray=None, ADF_res: np.ndarray=None, CRB_res: np.ndarray=None, energies: np.ndarray=None, energies_uncertainty: np.ndarray=None) -> pd.DataFrame:
+def add_df_columns(df: pd.DataFrame, SWF_res: np.ndarray=None, SWF_loss: np.ndarray=None, ADF_res: np.ndarray=None, ADF_loss: np.ndarray=None, CRB_res: np.ndarray=None, energies: np.ndarray=None, energies_uncertainty: np.ndarray=None) -> pd.DataFrame:
     """ Add columns to the DataFrame with reconstruction results
     Inputs:
         df: pandas DataFrame
         SWF_res: array containing SWF reconstruction results
+        SWF_loss: array containing SWF loss values
         ADF_res: array containing ADF reconstruction results
+        ADF_loss: array containing ADF loss values
         CRB_res: array containing CRB results
         energies: array containing reconstructed energies
         energies_uncertainty: array containing uncertainties on reconstructed energies
@@ -185,9 +187,15 @@ def add_df_columns(df: pd.DataFrame, SWF_res: np.ndarray=None, ADF_res: np.ndarr
         new_cols = np.array([[SWF_res[i][0], SWF_res[i][1], SWF_res[i][2], SWF_res[i][3]] for i in range(len(SWF_res))])
         df[['recons_alpha', 'recons_beta', 'recons_rxmax', 'recons_t0']] = new_cols
 
+    if SWF_loss is not None:
+        df['SWF_loss'] = SWF_loss
+
     if ADF_res is not None:
         new_cols = np.array([[ADF_res[i][0], ADF_res[i][1], ADF_res[i][2], ADF_res[i][3]] for i in range(len(ADF_res))])
         df[['recons_theta', 'recons_phi', 'recons_delta_omega', 'recons_amplitude']] = new_cols
+
+    if ADF_loss is not None:
+        df['ADF_loss'] = ADF_loss
 
     if CRB_res is not None:
         new_cols = np.array([[CRB_res[i][0], CRB_res[i][1], CRB_res[i][2], CRB_res[i][3], CRB_res[i][4], CRB_res[i][5], CRB_res[i][6], CRB_res[i][7]] for i in range(len(CRB_res))])
@@ -1047,7 +1055,7 @@ def main():
         else:
             SWF_res, SWF_losses = SWF_recons(ncoincs, nants, antenna_coords_array, peak_time_array_s, PWF_res, file_path, verbose=verbose_bool, n_max=n_max)
         # add results to dataframe
-        results_df = add_df_columns(results_df, SWF_res=SWF_res)
+        results_df = add_df_columns(results_df, SWF_res=SWF_res, SWF_loss=SWF_losses)
         print("[SWF computed]")
     else:
         SWF_res = results_df[['recons_alpha_deg', 'recons_beta_deg', 'recons_rxmax', 'recons_t0']].values
@@ -1063,7 +1071,7 @@ def main():
         else:
             ADF_res, ADF_losses = ADF_recons(ncoincs, nants, antenna_coords_array, peak_amp_array, PWF_res, SWF_res, file_path, verbose=verbose_bool, n_max=n_max)
         print("[ADF computed]")
-        results_df = add_df_columns(results_df, ADF_res=ADF_res)
+        results_df = add_df_columns(results_df, ADF_res=ADF_res, ADF_loss=ADF_losses)
     else:
         ADF_res = results_df[['recons_theta', 'recons_phi', 'recons_dw', 'recons_amp']].values
         print("[ADF loaded]")
