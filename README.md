@@ -48,9 +48,11 @@ For the algorithm in itself:
 
 ## Expected results
 
-The code should give you a dozen of `.npy` files to be later used by the CRB file. Then produce `PWF_res.npy`, `SWF_res.npy` and `ADF_res.npy` that store the fitting results. The results are stored in `ADF_res.npy` as :  theta_deg , phi_deg , dw , Amp 
-
-Then also `PWF_CRB_res.npy`  and `CRB_res.npy`. `CRB_res.npy` contains the results as such columns : std_alpha_deg, std_beta_deg, std_rxmax, std_t0, std_theta_deg, std_phi_deg, std_dw, std_Amp.
+The code should generate you a dozen of `.npy` files (saved in `data_npy`) to be later used by the CRB calculations. Then produce `results_df.parquet` that stores the fitting results. The results are stored in the dataframe as, 
+- for SWF '`recons_alpha`', '`recons_beta`', '`recons_rxmax`', '`recons_t0`' and `SWF_loss`,
+- for ADF '`recons_theta`', '`recons_phi`', '`recons_delta_omega`', '`recons_amplitude`' and '`ADF_loss`' 
+- for CRB : '`stds_alpha`', '`stds_beta`', '`stds_rxmax`', '`stds_t0`', '`stds_theta`', '`stds_phi`', '`stds_delta_omega`', '`stds_amplitude`'
+- for energy calculations: '`recons_energy`', '`recons_energy_uncertainty`'
 
 The `MCMC.py` can either give you back a file with all the samples and logprob values (`emcee_samples_res.h5`) if you chose to run it sequentially (to save up memory), or simply give back the mode of the distribution (`emcee_modes_res.h5`) if you decide to run it with multiprocessing. 
 For the **modes** : An HDF5 file containing a mcmc_emcee_results group with one sub-group per coincidence (coinc_XXXXX), storing only the MCMC mode vector and lightweight metadata.
