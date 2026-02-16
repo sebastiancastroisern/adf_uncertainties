@@ -170,7 +170,7 @@ def build_result_dataframe(file_path: str= args.filepath, nmax: int=None) -> pd.
 
     return df_temp
 
-def add_df_columns(df: pd.DataFrame, SWF_res: np.ndarray=None, SWF_loss: np.ndarray=None, ADF_res: np.ndarray=None, ADF_loss: np.ndarray=None, CRB_res: np.ndarray=None, energies: np.ndarray=None, energies_uncertainty: np.ndarray=None, grammages: np.ndarray=None) -> pd.DataFrame:
+def add_df_columns(df: pd.DataFrame, SWF_res: np.ndarray=None, SWF_loss: np.ndarray=None, ADF_res: np.ndarray=None, ADF_loss: np.ndarray=None, CRB_res: np.ndarray=None, CRB_ADF_only: np.ndarray=None, energies: np.ndarray=None, energies_uncertainty: np.ndarray=None, grammages: np.ndarray=None) -> pd.DataFrame:
     """ Add columns to the DataFrame with reconstruction results
     Inputs:
         df: pandas DataFrame
@@ -179,6 +179,7 @@ def add_df_columns(df: pd.DataFrame, SWF_res: np.ndarray=None, SWF_loss: np.ndar
         ADF_res: array containing ADF reconstruction results
         ADF_loss: array containing ADF loss values
         CRB_res: array containing CRB results
+        CRB_ADF_only: array containing CRB results for ADF only
         energies: array containing reconstructed energies
         energies_uncertainty: array containing uncertainties on reconstructed energies
         grammages: array containing reconstructed grammages
@@ -202,6 +203,10 @@ def add_df_columns(df: pd.DataFrame, SWF_res: np.ndarray=None, SWF_loss: np.ndar
     if CRB_res is not None:
         new_cols = np.array([[CRB_res[i][0], CRB_res[i][1], CRB_res[i][2], CRB_res[i][3], CRB_res[i][4], CRB_res[i][5], CRB_res[i][6], CRB_res[i][7]] for i in range(len(CRB_res))])
         df[['stds_alpha', 'stds_beta', 'stds_rxmax', 'stds_t0', 'stds_theta', 'stds_phi', 'stds_delta_omega', 'stds_amplitude']] = new_cols
+
+    if CRB_ADF_only is not None:
+        new_cols = np.array([[CRB_ADF_only[i][0], CRB_ADF_only[i][1], CRB_ADF_only[i][2], CRB_ADF_only[i][3]] for i in range(len(CRB_ADF_only))])
+        df[['stds_theta_adf', 'stds_phi_adf', 'stds_delta_omega_adf', 'stds_amplitude_adf']] = new_cols
 
     if energies is not None and energies_uncertainty is not None:
         new_cols = np.array([[energies[i], energies_uncertainty[i]] for i in range(len(energies))])
@@ -1094,7 +1099,7 @@ def main():
         CRB_res, cov_mats = ADF_SWF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, n_max=n_max, verbose=verbose_bool, save_mat=args.savemat)
 
         CRB_ADF_only, cov_mats_ADF_only = ADF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, n_max=n_max, verbose=verbose_bool, save_mat=args.savemat)
-        results_df = add_df_columns(results_df, CRB_res=CRB_res)
+        results_df = add_df_columns(results_df, CRB_res=CRB_res, CRB_ADF_only=CRB_ADF_only)
     
     else: 
         CRB_res = results_df[['stds_alpha', 'stds_beta', 'stds_rxmax', 'stds_t0', 'stds_theta', 'stds_phi', 'stds_delta_omega', 'stds_amplitude']].values

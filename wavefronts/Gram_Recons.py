@@ -74,9 +74,10 @@ def compute_grammage_numpy(Xmax_heights:np.ndarray, SWF_deg:np.ndarray, std_atm)
     """
     
     SWF_deg = np.asarray(SWF_deg)
+    theta_clipp = np.clip(SWF_deg[:, 0], 0.01, 89.9)  # Avoid angles too close to 0 or 180 degrees
 
     grammages = []
-    for h, theta in tqdm.tqdm(zip(Xmax_heights, SWF_deg[:, 0]), total=len(Xmax_heights), desc="Computing grammages"):
+    for h, theta in tqdm.tqdm(zip(Xmax_heights, theta_clipp), total=len(Xmax_heights), desc="Computing grammages"):
         std_atm.set_theta(float(theta))
         grammages.append(std_atm.h2X(float(h)))
 
