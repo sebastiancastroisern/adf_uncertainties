@@ -25,10 +25,13 @@ parser.add_argument('--nmax'    ,type=int, default=None, help='Maximum number of
 parser.add_argument('--filepath', type=str, default='./test_NJ/', help='Path to the input data files') # other exemple './addednoise_110uV_5antennas/'
 parser.add_argument('--test'   , action='store_true', help='Run all computes in test mode with a small dataset')
 parser.add_argument('--tout'   , action='store_true', help='Run all reconstructions and CRB computations')
-parser.add_argument('--gen'    , action='store_true', help='Regenerate .npy files from text data')
 parser.add_argument('--verbose', action='store_true', help='Enable verbose output during reconstructions')
 parser.add_argument('--multi'  , action='store_false', help='Enable multiprocessing for SWF reconstructions. Default is True (multiprocessing enabled)')
-parser.add_argument('--savemat', action='store_false', help='Save Fisher information matrices as .npy files')
+parser.add_argument('-swf', action='store_true', help='Compute SWF reconstruction')
+parser.add_argument('-adf', action='store_true', help='Compute ADF reconstruction')
+parser.add_argument('-crb', action='store_true', help='Compute CRB')
+parser.add_argument('-energy', action='store_true', help='Compute energy reconstruction')
+parser.add_argument('-grammage', action='store_true', help='Compute grammage reconstruction')
 args = parser.parse_args()
 
 # Numpy compatibility
@@ -693,7 +696,7 @@ def recons_energy_all_crb(ncoincs: int, ADF_deg: np.ndarray, SWF_deg: np.ndarray
 
 # ======================= CRB of ADF + SWF ======================= #
 
-def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_res: np.ndarray, ADF_res: np.ndarray, file_path: str, n_max: int=None, verbose: bool=False, save_mat:bool=False) -> np.ndarray:
+def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_res: np.ndarray, ADF_res: np.ndarray, file_path: str, n_max: int=None, verbose: bool=False) -> np.ndarray:
 
     """ Function calculating the Cramér-Rao Bound for the joint ADF + SWF reconstruction
     Inputs:
@@ -807,17 +810,9 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
         
     print(f"\n[{time.time()-t0:.3f}s] ADF + SWF CRB done for {n_to_process} coincidences with {cpt} singular matrices")
     
-    # np.save(os.path.join(file_path, "CRB_res.npy"), 
-    #         {'data': stds, 'columns': ['std_alpha_deg', 'std_beta_deg', 'std_rxmax', 'std_t0', 'std_theta_deg', 'std_phi_deg', 'std_dw', 'std_Amp']}, 
-    #         allow_pickle=True)
-    
-    # if save_mat:
-    #     np.save(os.path.join(file_path, "CRB_fisher_matrices.npy"), 
-    #             {'data': cov_mats}, 
-    #             allow_pickle=True)
     return stds, cov_mats
 
-def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_res: np.ndarray, ADF_res: np.ndarray, file_path: str, n_max: int=None, verbose: bool=False, save_mat:bool=False) -> np.ndarray:
+def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_res: np.ndarray, ADF_res: np.ndarray, file_path: str, n_max: int=None, verbose: bool=False) -> np.ndarray:
     """ Function calculating the Cramér-Rao Bound for the joint ADF + SWF reconstruction
     Inputs:
         ncoincs: number of coincidences
@@ -911,14 +906,6 @@ def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_re
         
     print(f"\n[{time.time()-t0:.3f}s] ADF only CRB done for {n_to_process} coincidences with {cpt} singular matrices")
     
-    np.save(os.path.join(file_path, "CRB_ADF_only_res.npy"), 
-            {'data': stds, 'columns': ['std_theta_deg', 'std_phi_deg', 'std_dw', 'std_Amp']}, 
-            allow_pickle=True)
-    
-    # if save_mat:
-    #     np.save(os.path.join(file_path, "CRB_ADF_only_fisher_matrices.npy"), 
-    #             {'data': cov_mats}, 
-    #             allow_pickle=True)
     return stds, cov_mats
 
 def PWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, PWF_res: np.ndarray, file_path: str, n_max: int=None, verbose: bool=False):
@@ -1017,7 +1004,6 @@ def main():
     #  Global parameters
     n_max            = args.nmax if not args.test else 20
     file_path        = args.filepath
-    npy_gen_bool     = args.gen
     multi_processing = args.multi
     verbose_bool     = False if not args.verbose else True
 
@@ -1025,8 +1011,8 @@ def main():
     file_path      = args.filepath
     data_file_path = os.path.join(file_path,'data_npy')
 
-    print(f"-------------- Looking for input files -----------------\nUsing data from: {file_path}")
-    if not os.path.exists(os.path.join(data_file_path,'co_ncoincs.npy')) or npy_gen_bool == True : # If files do not exist or position file has not been modified recently
+    print(f"\n-------------- Looking for input files -----------------\n\nUsing data from: {file_path}")
+    if not os.path.exists(os.path.join(data_file_path,'co_ncoincs.npy')) : # If files do not exist o
         print("Preprocessing input data...")
         npy_files_builder(file_path, data_file_path)
         print("Input data preprocessing done.")
@@ -1047,13 +1033,15 @@ def main():
     print(f"Loaded {n_to_process} coincidences but computing only {n_to_process}.\n")
 
     # Looking for existing CRB, SWF and ADF results to avoid recomputation if not necessary
-    run_SWF = run_ADF = run_CRB = True
+    run_SWF = run_ADF = run_CRB = run_grammage = run_energy = True
     if 'recons_theta' in results_df.columns : run_ADF = False
     if 'recons_alpha' in results_df.columns : run_SWF = False 
     if 'stds_rxmax'   in results_df.columns : run_CRB = False
+    if 'recons_grammage' in results_df.columns: run_grammage = False
+    if 'recons_energy' in results_df.columns: run_energy = False
     if not os.path.exists(os.path.join(file_path, 'results_dataframe.parquet')): # or (os.path.getmtime(os.path.join(file_path, 'results_dataframe.parquet')) - time.time()) > 7*24*3600: 
-        run_CRB = run_SWF = run_ADF = True
-    if args.tout : run_SWF = run_ADF = run_CRB = True # Forcer CRB si demandé
+        run_CRB = run_SWF = run_ADF = run_grammage = run_energy = True
+    if args.tout : run_SWF = run_ADF = run_CRB = run_grammage = run_energy = True # Force run of all steps if --tout is specified
     
     print('-------------- Starting CRB Calculations --------------')
 
@@ -1062,7 +1050,7 @@ def main():
     print("[PWF Computed]")
 
     # --- Load or compute SWF ---
-    if run_SWF:
+    if run_SWF or args.swf:
         print("\nComputing SWF...")
         if multi_processing:
             print(f"[MULTIPROCESSING] {n_to_process} SWF reconstruction with {mp.cpu_count()-1} CPUs...")
@@ -1078,7 +1066,7 @@ def main():
 
 
     # --- Load or compute ADF ---
-    if run_ADF:
+    if run_ADF or args.adf:
         print("\nComputing ADF...")
         if multi_processing:
             print(f"[MULTIPROCESSING] {n_to_process} ADF reconstruction with {mp.cpu_count()-1} CPUs...")
@@ -1093,33 +1081,36 @@ def main():
 
 
     # --- Compute CRB ---
-
-    if run_CRB:
+    if run_CRB or args.crb:
         print("\nComputing CRB for ADF + SWF...")
-        CRB_res, cov_mats = ADF_SWF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, n_max=n_max, verbose=verbose_bool, save_mat=args.savemat)
-
-        CRB_ADF_only, cov_mats_ADF_only = ADF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, n_max=n_max, verbose=verbose_bool, save_mat=args.savemat)
+        CRB_res, cov_mats = ADF_SWF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, n_max=n_max, verbose=verbose_bool)
+        CRB_ADF_only, cov_mats_ADF_only = ADF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, n_max=n_max, verbose=verbose_bool)
         results_df = add_df_columns(results_df, CRB_res=CRB_res, CRB_ADF_only=CRB_ADF_only)
-    
     else: 
+        print("[CRB loaded]")
         CRB_res = results_df[['stds_alpha', 'stds_beta', 'stds_rxmax', 'stds_t0', 'stds_theta', 'stds_phi', 'stds_delta_omega', 'stds_amplitude']].values
 
 
-    print('\n-------------- Starting Energy Reconstruction --------------')
-
     # --- Compute energy estimates ---
-    print("\nComputing energy estimates from ADF results...")
+    if run_energy or args.energy:
+        print('\n-------------- Starting Energy Reconstruction --------------')
+        print("\nComputing energy estimates from ADF results...")
+        energies, energies_uncertainty = recons_energy_all_crb(ncoincs, ADF_res, SWF_res, CRB_res, file_path, csv_file_path=pr.csv_coeff_corr, verbose=verbose_bool, n_max=n_max)
+        results_df = add_df_columns(results_df, energies=energies, energies_uncertainty=energies_uncertainty)
+    else:
+        print("\n[Energy NOT computed]")
 
-    energies, energies_uncertainty = recons_energy_all_crb(ncoincs, ADF_res, SWF_res, CRB_res, file_path, csv_file_path=pr.csv_coeff_corr, verbose=verbose_bool, n_max=n_max)
-    results_df = add_df_columns(results_df, energies=energies, energies_uncertainty=energies_uncertainty)
-
-    print('\n-------------- Starting Grammage Reconstruction --------------')
 
     # --- Compute grammage estimates ---
-    print("\nComputing grammage estimates from SWF results...")
-    grammages = grammage_reconsrtuction(results_df)
-    results_df = add_df_columns(results_df, grammages=grammages)
+    if run_grammage or args.grammage:
+        print('\n-------------- Starting Grammage Reconstruction --------------')
+        print("\nComputing grammage estimates from SWF results...")
+        grammages = grammage_reconsrtuction(results_df)
+        results_df = add_df_columns(results_df, grammages=grammages)
+    else:
+        print("\n[Grammage NOT computed]")
 
+    # Save results dataframe as .parquet
     results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet"))
     print("\nAll done.")
 
