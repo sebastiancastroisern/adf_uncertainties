@@ -21,17 +21,17 @@ from wavefronts.wavefronts_SEB import *
 
 # argparse setup
 parser = argparse.ArgumentParser(description='Cramer-Rao Bound computation for radio-detected air showers')
-parser.add_argument('--nmax'    ,type=int, default=None, help='Maximum number of coincidences to process')
-parser.add_argument('--filepath', type=str, default='./test_NJ/', help='Path to the input data files') # other exemple './addednoise_110uV_5antennas/'
-parser.add_argument('--test'   , action='store_true', help='Run all computes in test mode with a small dataset')
-parser.add_argument('--tout'   , action='store_true', help='Run all reconstructions and CRB computations')
-parser.add_argument('--verbose', action='store_true', help='Enable verbose output during reconstructions')
-parser.add_argument('--multi'  , action='store_false', help='Enable multiprocessing for SWF reconstructions. Default is True (multiprocessing enabled)')
-parser.add_argument('-swf', action='store_true', help='Compute SWF reconstruction')
-parser.add_argument('-adf', action='store_true', help='Compute ADF reconstruction')
-parser.add_argument('-crb', action='store_true', help='Compute CRB')
-parser.add_argument('-energy', action='store_true', help='Compute energy reconstruction')
-parser.add_argument('-grammage', action='store_true', help='Compute grammage reconstruction')
+parser.add_argument('--nmax'    , type=int, default=None,      help='Maximum number of coincidences to process')
+parser.add_argument('--filepath', type=str, default='test_NJ', help='Path to the input data files') # other exemple 'test_AN3'
+parser.add_argument('--multi'  , action='store_false', help='Enable multiprocessing for SWF reconstructions. Default is enabled')
+parser.add_argument('--test'   , action='store_true',  help='Run all computes in test mode with a small dataset')
+parser.add_argument('--tout'   , action='store_true',  help='Run all reconstructions and CRB computations')
+parser.add_argument('--verbose', action='store_true',  help='Enable verbose output during reconstructions')
+parser.add_argument('-swf',      action='store_true',  help='Force computation of SWF reconstruction')
+parser.add_argument('-adf',      action='store_true',  help='Force computation of ADF reconstruction')
+parser.add_argument('-crb',      action='store_true',  help='Force computation of CRB')
+parser.add_argument('-energy',   action='store_true',  help='Force computation of energy reconstruction')
+parser.add_argument('-grammage', action='store_true',  help='Force computation of grammage reconstruction')
 args = parser.parse_args()
 
 # Numpy compatibility
@@ -128,18 +128,18 @@ def build_Xsource(alpha_rad: float, beta_rad: float, r_xmax: float) -> np.ndarra
 
     return Xsource
 
-def build_K_vector(theta: float, phi: float) -> np.ndarray:
+def build_K_vector(theta_rad: float, phi_rad: float) -> np.ndarray:
     """ Build the shower direction vector K from spherical coordinates
     Inputs:
-        theta: zenith angle in radians
-        phi: azimuthal angle in radians
+        theta_rad: zenith angle in radians
+        phi_rad: azimuthal angle in radians
     Outputs:
         K: shower direction vector
     """
-    st = np.sin(theta)
-    ct = np.cos(theta)
-    sp = np.sin(phi)
-    cp = np.cos(phi)
+    st = np.sin(theta_rad)
+    ct = np.cos(theta_rad)
+    sp = np.sin(phi_rad)
+    cp = np.cos(phi_rad)
 
     K = np.array([
         -st * cp,
@@ -173,7 +173,7 @@ def build_result_dataframe(file_path: str= args.filepath, nmax: int=None) -> pd.
 
     return df_temp
 
-def add_df_columns(df: pd.DataFrame, SWF_res: np.ndarray=None, SWF_loss: np.ndarray=None, ADF_res: np.ndarray=None, ADF_loss: np.ndarray=None, CRB_res: np.ndarray=None, CRB_ADF_only: np.ndarray=None, energies: np.ndarray=None, energies_uncertainty: np.ndarray=None, grammages: np.ndarray=None) -> pd.DataFrame:
+def add_df_columns(df: pd.DataFrame, SWF_res: np.ndarray=None, SWF_loss: np.ndarray=None, ADF_res: np.ndarray=None, ADF_loss: np.ndarray=None, CRB_res: np.ndarray=None, CRB_ADF_only: np.ndarray=None, energies: np.ndarray=None, energies_uncertainty: np.ndarray=None, grammages: np.ndarray=None, xcore: np.ndarray=None) -> pd.DataFrame:
     """ Add columns to the DataFrame with reconstruction results
     Inputs:
         df: pandas DataFrame
@@ -186,6 +186,7 @@ def add_df_columns(df: pd.DataFrame, SWF_res: np.ndarray=None, SWF_loss: np.ndar
         energies: array containing reconstructed energies
         energies_uncertainty: array containing uncertainties on reconstructed energies
         grammages: array containing reconstructed grammages
+        xcore: array containing Xcore coordinates
     Outputs:
         df: pandas DataFrame with added columns
     """
@@ -218,6 +219,9 @@ def add_df_columns(df: pd.DataFrame, SWF_res: np.ndarray=None, SWF_loss: np.ndar
     if grammages is not None:
         df['recons_grammage'] = grammages
 
+    if xcore is not None:
+        df[['x_core', 'y_core', 'z_core']] = xcore
+
     return df
 
 # ============================ PWF ============================ #
@@ -235,7 +239,7 @@ def PWF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray
 
     n_to_process = ncoincs if n_max is None else min(ncoincs, n_max)
 
-    t0 = time.time()
+    # t0 = time.time()
     rad2deg = 180.0 / np.pi
     PWF_res = np.zeros((n_to_process, 2))  # theta, phi in degrees
 
@@ -254,7 +258,7 @@ def PWF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray
             PWF_res[i,0] = np.nan
             PWF_res[i,1] = np.nan
 
-    print(f"[{time.time()-t0:.3f}s] Plane Wave Fit reconstruction done for {n_to_process} coincidences")
+    # print(f"[{time.time()-t0:.3f}s] Plane Wave Fit reconstruction done for {n_to_process} coincidences")
     return PWF_res
 
 
@@ -995,7 +999,23 @@ def grammage_reconsrtuction(df_results: pd.DataFrame) -> pd.DataFrame:
 
     return grammages
 
+def Xcore_recons(SWF_res: np.ndarray, ADF_res: np.ndarray) -> np.ndarray:
+    """
+    Function reconstructing the core position for all coincidences
+    Inputs:
+        SWF_res: array containing SWF reconstruction results (in degrees and meters)
+        ADF_res: array containing ADF reconstruction results (in degrees and mV)
+    Outputs:
+        X_core: array of reconstructed core positions per coincidence in ENU coordinates (in meters)
+    """
 
+    d2r = np.pi / 180.0
+    k_vect = build_K_vector(ADF_res[:,0]*d2r, ADF_res[:,1]*d2r)
+    Xsource = build_Xsource(SWF_res[:,0]*d2r, SWF_res[:,1]*d2r, SWF_res[:,2])
+    t_vector = (pr.groundAltitude - Xsource[:,2]) / (k_vect[:,2])
+
+    X_core = Xsource + k_vect * t_vector[:, np.newaxis]
+    return X_core
 
 # ============================ Main ============================ #
 
@@ -1030,20 +1050,22 @@ def main():
     
     file_path = args.filepath if not args.test else os.path.join(args.filepath, 'CRB_test/')
     if not os.path.exists(file_path): os.makedirs(file_path)
-    print(f"Loaded {n_to_process} coincidences but computing only {n_to_process}.\n")
+    print(f"Loaded {n_to_process} coincidences and computing {n_to_process}.\n")
 
-    # Looking for existing CRB, SWF and ADF results to avoid recomputation if not necessary
+    # Looking for existing CRB, SWF, ADF, grammage and energy results to avoid recomputation if not necessary
     run_SWF = run_ADF = run_CRB = run_grammage = run_energy = True
-    if 'recons_theta' in results_df.columns : run_ADF = False
-    if 'recons_alpha' in results_df.columns : run_SWF = False 
-    if 'stds_rxmax'   in results_df.columns : run_CRB = False
-    if 'recons_grammage' in results_df.columns: run_grammage = False
-    if 'recons_energy' in results_df.columns: run_energy = False
-    if not os.path.exists(os.path.join(file_path, 'results_dataframe.parquet')): # or (os.path.getmtime(os.path.join(file_path, 'results_dataframe.parquet')) - time.time()) > 7*24*3600: 
+
+    if 'recons_theta'    in results_df.columns : run_ADF      = False
+    if 'recons_alpha'    in results_df.columns : run_SWF      = False 
+    if 'stds_rxmax'      in results_df.columns : run_CRB      = False
+    if 'recons_grammage' in results_df.columns : run_grammage = False
+    if 'recons_energy'   in results_df.columns : run_energy   = False
+
+    if not os.path.exists(os.path.join(file_path, 'results_dataframe.parquet')) or (os.path.getmtime(os.path.join(file_path, 'results_dataframe.parquet')) - time.time()) > 7*24*3600: 
         run_CRB = run_SWF = run_ADF = run_grammage = run_energy = True
     if args.tout : run_SWF = run_ADF = run_CRB = run_grammage = run_energy = True # Force run of all steps if --tout is specified
     
-    print('-------------- Starting CRB Calculations --------------')
+    print('-------------- Starting CRB Calculations --------------\n')
 
     # --- Compute PWF ---
     PWF_res = PWF_recons(ncoincs, nants, antenna_coords_array, peak_time_array_m, n_max=n_max, verbose=verbose_bool)
@@ -1098,7 +1120,7 @@ def main():
         energies, energies_uncertainty = recons_energy_all_crb(ncoincs, ADF_res, SWF_res, CRB_res, file_path, csv_file_path=pr.csv_coeff_corr, verbose=verbose_bool, n_max=n_max)
         results_df = add_df_columns(results_df, energies=energies, energies_uncertainty=energies_uncertainty)
     else:
-        print("\n[Energy NOT computed]")
+        print("\n[Energy NOT computed] => already in dataframe")
 
 
     # --- Compute grammage estimates ---
@@ -1108,7 +1130,10 @@ def main():
         grammages = grammage_reconsrtuction(results_df)
         results_df = add_df_columns(results_df, grammages=grammages)
     else:
-        print("\n[Grammage NOT computed]")
+        print("[Grammage NOT computed] => already in dataframe")
+
+    Xcores = Xcore_recons(SWF_res, ADF_res)
+    results_df = add_df_columns(results_df, xcore=Xcores.T)
 
     # Save results dataframe as .parquet
     results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet"))
