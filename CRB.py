@@ -1014,7 +1014,7 @@ def Xcore_recons(SWF_res: np.ndarray, ADF_res: np.ndarray) -> np.ndarray:
     Xsource = build_Xsource(SWF_res[:,0]*d2r, SWF_res[:,1]*d2r, SWF_res[:,2])
     t_vector = (pr.groundAltitude - Xsource[:,2]) / (k_vect[:,2])
 
-    X_core = Xsource + k_vect * t_vector[:, np.newaxis]
+    X_core = Xsource + k_vect * t_vector[:, np.newaxis] - np.array([0.0, 0.0, pr.groundAltitude])
     return X_core
 
 # ============================ Main ============================ #
