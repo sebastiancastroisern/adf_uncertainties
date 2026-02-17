@@ -53,13 +53,12 @@ def conversion_to_enu_numpy(Xmax: np.ndarray, lat0: float=pr.lat_0, lon0: float=
 
     H_list = []
     for ei, ni, ui in zip(e, n, u):
-        _, _, H = pm.enu2geodetic(ei, ni, ui, lat0=lat0, lon0=lon0, h0=0.0)
-        H_list.append(H)
+        _, _, h = pm.enu2geodetic(ei, ni, ui, lat0=lat0, lon0=lon0, h0=0.0)
+        H_list.append(h)
+        
+    return np.asarray(H_list) * 1e2  # m -> cm
 
-    H = np.asarray(H_list) * 1e2  # m -> cm
-    return H
-
-def compute_grammage_numpy(Xmax_heights:np.ndarray, SWF_deg:np.ndarray, std_atm) -> np.ndarray:
+def compute_grammage_numpy(Xmax_heights:np.ndarray, SWF_deg:np.ndarray, std_atm, verbose:bool =False) -> np.ndarray:
     """ Compute grammage from Xmax heights and SWF parameters in degrees using a standard atmosphere model.
     Inputs:
         Xmax_heights: np.ndarray
@@ -74,12 +73,14 @@ def compute_grammage_numpy(Xmax_heights:np.ndarray, SWF_deg:np.ndarray, std_atm)
     """
     
     SWF_deg = np.asarray(SWF_deg)
-    theta_clipp = np.clip(SWF_deg[:, 0], 0.01, 89.9)  # Avoid angles too close to 0 or 180 degrees
+    theta_clipp = np.clip(SWF_deg[:, 0], 0.01, 89.9)  # Avoid angles too close to 0 or 90 degrees
 
     grammages = []
     for h, theta in tqdm.tqdm(zip(Xmax_heights, theta_clipp), total=len(Xmax_heights), desc="Computing grammages"):
         std_atm.set_theta(float(theta))
         grammages.append(std_atm.h2X(float(h)))
+        if verbose:
+            print(f"Height: {h:.2f} cm, Theta: {theta:.2f} deg -> Grammage: {grammages[-1]:.2f} g/cm^2")
 
     return np.asarray(grammages)
 

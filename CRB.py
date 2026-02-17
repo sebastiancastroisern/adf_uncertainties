@@ -147,7 +147,7 @@ def build_K_vector(theta_rad: float, phi_rad: float) -> np.ndarray:
         -ct
     ], dtype=np.float64)
 
-    return K
+    return K / np.linalg.norm(K)  # Ensure K is a unit vector
 
 def build_result_dataframe(file_path: str= args.filepath, nmax: int=None) -> pd.DataFrame:
     """ Build a pandas DataFrame from the reconstruction results and CRB computations
@@ -221,6 +221,7 @@ def add_df_columns(df: pd.DataFrame, SWF_res: np.ndarray=None, SWF_loss: np.ndar
 
     if xcore is not None:
         df[['x_core', 'y_core', 'z_core']] = xcore
+        df['dist_xcore'] = np.sqrt(xcore[:,0]**2 + xcore[:,1]**2) # distance to core in horizontal plane only
 
     return df
 
@@ -812,7 +813,7 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
             print(f"\n\n[Coincidence {j}] \nstd_alpha={stds[j,0]:.4e}°, \nstd_beta={stds[j,1]:.4e}°, \nstd_rxmax={stds[j,2]/1e3:.4e} km, \nstd_t0={stds[j,3]:.4e}, \nstd_theta={stds[j,4]:.4e}°, \nstd_phi={stds[j,5]:.4e}°, \nstd_dw={stds[j,6]:.4e}, \nstd_Amp={stds[j,7]:.4e}")
         print(f"Percentage of singular matrices: {100.0 * cpt / n_to_process:.2f}%")
         
-    print(f"\n[{time.time()-t0:.3f}s] ADF + SWF CRB done for {n_to_process} coincidences with {cpt} singular matrices")
+    print(f"\n[{time.time()-t0:.3f}s] ADF + SWF CRB done for {n_to_process} coincidences with {cpt} singular matrices\n")
     
     return stds, cov_mats
 
@@ -979,23 +980,25 @@ def PWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, PWF_re
 
 # ======================= GRAMAMGE ======================= #
 
-def grammage_reconsrtuction(df_results: pd.DataFrame) -> pd.DataFrame:
+def grammage_reconsrtuction(SWF_res: np.ndarray, verbose: bool=False) -> np.ndarray:
 
     """ Function reconstructing the grammage for all coincidences
     Inputs:
-        df_results: dataframe containing the reconstruction results (in degrees)
+        SWF_res: array containing SWF reconstruction results (in degrees and meters)
     Outputs:
         df_results: dataframe with added grammage column (in g/cm^2) """
     
-    SWF_deg = df_results[["recons_alpha", "recons_beta", "recons_rxmax", "recons_t0"]].values
+    SWF_deg = SWF_res.copy()
     SWF_rad = SWF_deg.copy()
     SWF_rad[:, :2] *= np.pi / 180.0
     SWF_deg, SWF_rad = np.array(SWF_deg), np.array(SWF_rad)
     std_atm = dp.CorsikaAtmosphere('USStd')
 
-    Xmax         = gr.compute_Xmax(SWF_rad)
-    Xmax_heights = gr.conversion_to_enu_numpy(Xmax)
-    grammages    = gr.compute_grammage_numpy(Xmax_heights, SWF_deg, std_atm)
+    Xsource = build_Xsource(SWF_rad[:,0], SWF_rad[:,1], SWF_rad[:,2])
+    print(f'Xsource shape is {Xsource.shape}')
+    Xmax_heights = gr.conversion_to_enu_numpy(Xsource.T)
+    print(f'Xmax_heights shape is {Xmax_heights.shape}')
+    grammages    = gr.compute_grammage_numpy(Xmax_heights, SWF_deg, std_atm, verbose=verbose)
 
     return grammages
 
@@ -1004,17 +1007,18 @@ def Xcore_recons(SWF_res: np.ndarray, ADF_res: np.ndarray) -> np.ndarray:
     Function reconstructing the core position for all coincidences
     Inputs:
         SWF_res: array containing SWF reconstruction results (in degrees and meters)
-        ADF_res: array containing ADF reconstruction results (in degrees and mV)
+        ADF_res: array containing ADF reconstruction results (in degrees)
     Outputs:
         X_core: array of reconstructed core positions per coincidence in ENU coordinates (in meters)
     """
 
-    d2r = np.pi / 180.0
-    k_vect = build_K_vector(ADF_res[:,0]*d2r, ADF_res[:,1]*d2r)
-    Xsource = build_Xsource(SWF_res[:,0]*d2r, SWF_res[:,1]*d2r, SWF_res[:,2])
-    t_vector = (pr.groundAltitude - Xsource[:,2]) / (k_vect[:,2])
+    d2r = np.pi / 180.0 # Degrees to radians conversion factor
+    k_vect   = np.array(build_K_vector(ADF_res[:,0]*d2r, ADF_res[:,1]*d2r).T) # theta and phi to have k vector
+    Xsource  = np.array(build_Xsource(SWF_res[:,0]*d2r, SWF_res[:,1]*d2r, SWF_res[:,2]).T) # Build Xsource from SWF results (alpha, beta, rxmax)
+    prop_factor = np.array(pr.groundAltitude - Xsource[:,2]) / (k_vect[:,2]) # proportionnality factor to get from Xsource to Xcore (intersection with ground plane at pr.groundAltitude)
 
-    X_core = Xsource + k_vect * t_vector[:, np.newaxis] - np.array([0.0, 0.0, pr.groundAltitude])
+    X_core = Xsource + k_vect * prop_factor[:, np.newaxis] 
+    X_core[:, 2] -= pr.groundAltitude # Convert to ground as reference (z=0 at ground level)
     return X_core
 
 # ============================ Main ============================ #
@@ -1127,13 +1131,15 @@ def main():
     if run_grammage or args.grammage:
         print('\n-------------- Starting Grammage Reconstruction --------------')
         print("\nComputing grammage estimates from SWF results...")
-        grammages = grammage_reconsrtuction(results_df)
+        grammages = grammage_reconsrtuction(SWF_res, verbose=verbose_bool)
         results_df = add_df_columns(results_df, grammages=grammages)
     else:
         print("[Grammage NOT computed] => already in dataframe")
 
     Xcores = Xcore_recons(SWF_res, ADF_res)
-    results_df = add_df_columns(results_df, xcore=Xcores.T)
+    results_df = add_df_columns(results_df, xcore=Xcores)
+
+    # print(results_df.iloc[:1, :])
 
     # Save results dataframe as .parquet
     results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet"))
