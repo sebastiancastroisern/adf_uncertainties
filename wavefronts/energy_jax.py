@@ -1,6 +1,5 @@
 import jax.numpy as jnp
 import jax
-import MCEq.geometry.density_profiles as dp
 import wavefronts.params_config as pr
 import pandas as pd
 
@@ -9,10 +8,8 @@ df_coeffs = pd.read_csv('wavefronts/correction_coefficients.csv')
 df_coeffs = df_coeffs[df_coeffs['value'] != 0.0]
 jpn_coeffs = jnp.array(df_coeffs['value'].values)
 
-# get the standard atmosphere density profile in jax
-std_atm = dp.CorsikaAtmosphere('USStd')
-altitudes_cm = jnp.logspace(5, 7, 10000)
-densities_table = jnp.array([std_atm.get_density(alt) for alt in altitudes_cm]) # in g/cm^3
+# Load Linsley atmospheric density model (height vs density)
+linsey_atmosphere = pd.read_parquet("wavefronts/linsley_atmosphere.parquet")
     
 def density_jax(alt_cm: float) -> float:
     """Interpolate density at given altitude in cm using precomputed table.
@@ -24,7 +21,7 @@ def density_jax(alt_cm: float) -> float:
         desnsity: float
             Density value at altitude atl_cm in g/cm^3"""
     
-    return jnp.interp(alt_cm, altitudes_cm, densities_table)
+    return jnp.interp(alt_cm, linsey_atmosphere['height_cm'].values, linsey_atmosphere['density_g_cm3'].values, right=0.0)
 
 def jax_poly_features_3(sinalpha: float, rho: float) -> float:
     """Generate polynomial features up to degree 3 for sinalpha and rho.
@@ -65,7 +62,7 @@ def jax_linreg_predict(features: jnp.array, coef: jnp.array) -> float:
 
 def build_K_vector(theta, phi):
     """ Build K vector from zenith and azimuth angles in radians 
-    ️Inputs:
+    Inputs:
         theta: float
             Zenith angle in radians
         phi: float
@@ -109,6 +106,7 @@ def jax_build_Xsource(SWF_rad):
 
     alpha, beta = SWF_rad[0], SWF_rad[1]
     K_source = build_K_vector(alpha, beta)
+
     return jnp.array([
         -SWF_rad[2] * K_source[0],
         -SWF_rad[2] * K_source[1],
@@ -180,17 +178,9 @@ def jax_energy_and_uncertainty(recons_rad: jnp.array, cov_mat: jnp.array, jnp_co
     # gradient
     energy_grad = jax.grad(energy_func)(recons_rad)
     
-    # hessian
-    energy_hess = jax.hessian(energy_func)(recons_rad)
-    
     # first order term
-    variance_1st = jnp.dot(energy_grad, jnp.dot(cov_mat, energy_grad))
-    
-    # second order term
-    variance_2nd = 0.5 * jnp.trace(jnp.dot(jnp.dot(energy_hess, cov_mat), 
-                                            jnp.dot(energy_hess, cov_mat)))
-    
-    variance = variance_1st + variance_2nd
+    variance = jnp.dot(energy_grad, jnp.dot(cov_mat, energy_grad))
+
     energy_uncertainty = jnp.sqrt(jnp.abs(variance)) 
 
     return jnp.array([energy, energy_uncertainty])

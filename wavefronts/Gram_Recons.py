@@ -130,6 +130,6 @@ def jax_slant_depth(SWF_rad:jnp.ndarray) -> jnp.ndarray:
     delta_dist = max_alt_point_dist_cm / (num_points - 1)
     slant_depth = jnp.sum(densities, axis=0) * delta_dist # g/cm^2
 
-    return slant_depth, height_cm
+    return slant_depth
 
 jax_slant_depth_jit = jax.jit(jax_slant_depth)

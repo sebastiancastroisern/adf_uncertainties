@@ -988,19 +988,17 @@ def grammage_reconsrtuction(SWF_res: np.ndarray, verbose: bool=False) -> np.ndar
     Outputs:
         df_results: dataframe with added grammage column (in g/cm^2) """
     
-    SWF_deg = SWF_res.copy()
-    SWF_rad = SWF_deg.copy()
-    SWF_rad[:, :2] *= np.pi / 180.0
-    SWF_deg, SWF_rad = np.array(SWF_deg), np.array(SWF_rad)
-    std_atm = dp.CorsikaAtmosphere('USStd')
+    SWF_rad = SWF_res.copy()
+    SWF_rad[:, :2]  *= np.pi / 180.0
+    SWF_rad = jnp.array(SWF_rad)
+    grammages_g_cm2 = []
+    for i in tqdm(range(SWF_rad.shape[0]), desc='Grammage reconstruction...'):
+        grammages_g_cm2.append(gr.jax_slant_depth_jit(SWF_rad[i, :]))
+        if verbose:
+            print(f"Coincidence {i}: Grammage = {grammages_g_cm2[-1]:.2f} g/cm^2")
 
-    Xsource = build_Xsource(SWF_rad[:,0], SWF_rad[:,1], SWF_rad[:,2])
-    print(f'Xsource shape is {Xsource.shape}')
-    Xmax_heights = gr.conversion_to_enu_numpy(Xsource.T)
-    print(f'Xmax_heights shape is {Xmax_heights.shape}')
-    grammages    = gr.compute_grammage_numpy(Xmax_heights, SWF_deg, std_atm, verbose=verbose)
-
-    return grammages
+    grammages_g_cm2 = jnp.array(grammages_g_cm2)
+    return grammages_g_cm2
 
 def Xcore_recons(SWF_res: np.ndarray, ADF_res: np.ndarray) -> np.ndarray:
     """
@@ -1138,8 +1136,6 @@ def main():
 
     Xcores = Xcore_recons(SWF_res, ADF_res)
     results_df = add_df_columns(results_df, xcore=Xcores)
-
-    # print(results_df.iloc[:1, :])
 
     # Save results dataframe as .parquet
     results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet"))
