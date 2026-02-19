@@ -3,84 +3,133 @@ import jax.numpy as jnp
 import tqdm
 import wavefronts.params_config as pr
 import numpy as np
-import pymap3d as pm
+import pandas as pd
 
-def compute_Xmax(SWF_rad: jnp.ndarray, ground_altitude: float = pr.groundAltitude) -> jnp.ndarray:
+# Load Linsley atmospheric density model (height vs density)
+linsey_atmosphere = pd.read_parquet("wavefronts/linsley_atmosphere.parquet")
+
+def compute_k_vect(alpha: jnp.ndarray, beta: jnp.ndarray) -> jnp.ndarray:
+    """Compute the direction unit vector of incoming cosmic ray (k vector).
+    
+    Converts spherical angles (alpha, beta) to cartesian coordinates.
+    
+    Args:
+        alpha: Zenith angle in radians
+        beta: Azimuth angle in radians
+    
+    Returns:
+        Direction vector in cartesian coordinates [kx, ky, kz]
     """
-    SWF_rad: (N, m), on utilise:
-      - SWF_rad[:, 0] : angle alpha
-      - SWF_rad[:, 1] : angle beta
-      - SWF_rad[:, 3] : distance
-    ground_altitude: altitude du sol en cm
-    Retourne: Xmax de shape (N, 3)
-    """
-    SWF_rad = jnp.asarray(SWF_rad)
-
-    alpha = SWF_rad[:, 0]
-    beta  = SWF_rad[:, 1]
-    dist  = SWF_rad[:, 3]
-
+    
     ca, sa = jnp.cos(alpha), jnp.sin(alpha)
     cb, sb = jnp.cos(beta),  jnp.sin(beta)
 
-    Xmax_vect = jnp.stack([sa * cb, sa * sb, ca], axis=1)
-    origin = jnp.array([[0.0, 0.0, ground_altitude]])
-    Xmax = Xmax_vect * dist[:, None] + origin
+    k_vect = jnp.array([sa * cb, sa * sb, ca])
+    return k_vect
 
-    return Xmax
-
-compute_Xmax_jit = jax.jit(compute_Xmax)
-
-
-def conversion_to_enu_numpy(Xmax: np.ndarray, lat0: float=pr.lat_0, lon0: float=pr.long_0) -> np.ndarray:
-    """
-    Conversion of Xmax from cartesian coordinates to altitude (ENU) using pymap3d, for a given reference latitude and longitude.
-    Inputs:
-        Xmax: np.ndarray
-            Array of Xmax positions in cartesian coordinates (shape: (N, 3))
-        lat0: float
-            Reference latitude for ENU conversion (default: pr.lat_0)
-        lon0: float
-            Reference longitude for ENU conversion (default: pr.long_0)
-    Outputs:
-        H: np.ndarray
-            Array of altitudes corresponding to Xmax positions (shape: (N,)) in cm
-    """
-    Xmax = np.asarray(Xmax)
-    e = -Xmax[:, 1]
-    n =  Xmax[:, 0]
-    u =  Xmax[:, 2]
-
-    H_list = []
-    for ei, ni, ui in zip(e, n, u):
-        _, _, h = pm.enu2geodetic(ei, ni, ui, lat0=lat0, lon0=lon0, h0=0.0)
-        H_list.append(h)
-        
-    return np.asarray(H_list) * 1e2  # m -> cm
-
-def compute_grammage_numpy(Xmax_heights:np.ndarray, SWF_deg:np.ndarray, std_atm, verbose:bool =False) -> np.ndarray:
-    """ Compute grammage from Xmax heights and SWF parameters in degrees using a standard atmosphere model.
-    Inputs:
-        Xmax_heights: np.ndarray
-            Array of Xmax heights in cm
-        SWF_deg: np.ndarray
-            Array of SWF parameters [theta, phi, R_source] in degrees and meters
-        std_atm: object
-            Standard atmosphere model with method h2X(height) to compute grammage from height
-    Outputs:        
-        grammages: np.ndarray
-            Array of grammages corresponding to Xmax heights (shape: (N,)) in g/cm^2 
-    """
+def compute_Xsource(SWF_rad: jnp.ndarray, ground_altitude: float = pr.groundAltitude) -> jnp.ndarray:
+    """Compute source position from spherical wavefront parameters.
     
-    SWF_deg = np.asarray(SWF_deg)
-    theta_clipp = np.clip(SWF_deg[:, 0], 0.01, 89.9)  # Avoid angles too close to 0 or 90 degrees
+    Combines direction angles and distance to locate the cosmic ray source
+    in cartesian coordinates relative to ground level.
+    
+    Args:
+        SWF_rad: Spherical wavefront parameters (Nx4 array)
+            [:, 0] = alpha (zenith angle) in radians
+            [:, 1] = beta (azimuth angle) in radians
+            [:, 2] = distance from ground in m
+        ground_altitude: Reference altitude (ground level) in m
+    
+    Returns:
+        Source positions in cartesian coordinates (Nx3 array) in m
+    """
+    SWF_rad = jnp.asarray(SWF_rad)
 
-    grammages = []
-    for h, theta in tqdm.tqdm(zip(Xmax_heights, theta_clipp), total=len(Xmax_heights), desc="Computing grammages"):
-        std_atm.set_theta(float(theta))
-        grammages.append(std_atm.h2X(float(h)))
-        if verbose:
-            print(f"Height: {h:.2f} cm, Theta: {theta:.2f} deg -> Grammage: {grammages[-1]:.2f} g/cm^2")
+    alpha = SWF_rad[0]
+    beta  = SWF_rad[1]
+    dist  = SWF_rad[2]
 
-    return np.asarray(grammages)
+    Xsource_vect = compute_k_vect(alpha, beta)
+    origin = jnp.array([[0.0, 0.0, ground_altitude]])
+    Xsource = Xsource_vect * dist + origin
+    Xsource = Xsource.reshape(3)  # Reshape to (3,) for consistency
 
+    return Xsource
+
+def jax_altitude(X_source: jnp.ndarray, R_earth: float= pr.R_earth) -> jnp.ndarray:
+    """X_source : (3,) en mètres, retourne altitude en cm"""
+
+    # Distance horizontale au carré
+    R2 = X_source[0]**2 + X_source[1]**2
+
+    return (jnp.sqrt(R2 + (X_source[2] + R_earth)**2) - R_earth) * 1e2
+
+def jax_altitude_multi(X_point: jnp.ndarray, R_earth: float= pr.R_earth) -> jnp.ndarray:
+    """X_point : (...,3) en mètres, retourne altitude en cm"""
+    
+    # Distance horizontale au carré
+    R2 = X_point[:, 0]**2 + X_point[:, 1]**2
+
+    return (jnp.sqrt(R2 + (X_point[:, 2] + R_earth)**2) - R_earth) * 1e2
+
+
+def find_max_alt_point(Xsource_heights: jnp.array, theta_rad: float, max_altitude_cm: float = 110e5) -> jnp.array:
+    """Find distance to atmosphere boundary along ray trajectory.
+    
+    Solves sphere-ray intersection to find where cosmic ray exits the atmosphere
+    (at specified maximum altitude). Uses positive solution for upward rays.
+    
+    Args:
+        Xsource_heights: Source altitude in cm
+        theta_rad: Zenith angle in radians
+        max_altitude_cm: Atmosphere upper boundary in cm (default: 110 km)
+    
+    Returns:
+        Distance along ray direction to atmosphere boundary in cm
+    """
+
+    total_radius = pr.R_earth * 1e2 + max_altitude_cm
+    distance = - (Xsource_heights + pr.R_earth * 1e2) * jnp.cos(theta_rad) + jnp.sqrt(total_radius**2 - ((Xsource_heights + pr.R_earth * 1e2) * jnp.sin(theta_rad))**2)
+
+    return distance
+
+def jax_slant_depth(SWF_rad:jnp.ndarray) -> jnp.ndarray:
+    """Compute atmospheric slant depth along cosmic ray trajectory.
+    
+    Integrates atmospheric density along the ray path from source to 
+    atmosphere boundary using Linsley atmospheric model for one event.
+    
+    Args:
+        SWF_rad: Spherical wavefront parameters [alpha, beta, ...] in radians
+    
+    Returns:
+        Total slant depth in g/cm²
+    """
+    num_points = 10000  # Number of sampling points along the ray path
+
+    # Get source position in cartesian coordinates
+    Xsource = compute_Xsource(SWF_rad)
+    # print("Source position (m):", Xsource)
+    # Get source altitude
+    height_cm = jax_altitude(Xsource)
+
+    # Find distance to atmosphere boundary along ray direction
+    max_alt_point_dist_cm = find_max_alt_point(height_cm, SWF_rad[0])
+    max_alt_point_dist_m = max_alt_point_dist_cm * 1e-2  # convert cm to m
+
+    # Generate sampling points along ray path
+    K_vect = compute_k_vect(SWF_rad[0], SWF_rad[1])
+    Max_point = Xsource + K_vect * max_alt_point_dist_m
+    line_points = Max_point + jnp.linspace(0, 1, num_points)[:, None] * (Xsource - Max_point)
+
+    # Evaluate altitude and density at each point
+    heights_along_line_cm = jax_altitude_multi(line_points)
+    densities = jnp.interp(heights_along_line_cm, linsey_atmosphere['height_cm'].values, linsey_atmosphere['density_g_cm3'].values, right=0.0)
+    
+    # Integrate density along path
+    delta_dist = max_alt_point_dist_cm / (num_points - 1)
+    slant_depth = jnp.sum(densities, axis=0) * delta_dist # g/cm^2
+
+    return slant_depth, height_cm
+
+jax_slant_depth_jit = jax.jit(jax_slant_depth)
