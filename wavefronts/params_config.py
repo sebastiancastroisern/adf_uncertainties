@@ -11,8 +11,6 @@ lat_0 = 0.99
 long_0 = 93.94   
 groundAltitude = 1264.0 # m
 
-# For the NJ simulations
-# groundAltitude = 1086.0 # m
 
 # ======================
 # Atmospheric model
@@ -29,47 +27,49 @@ h0 = 8_000.0  # m
 
 # Values at the Xiaodushan Observatory, China
 
-modulus = 56.482  # uT (microtesla)
-B_inc = np.deg2rad(61.6)  # degrés
-B_dec = np.deg2rad(0.1253)  # degrés
+# modulus = 56.482  # uT (microtesla)
+# B_inc = np.deg2rad(61.6)  # degrés
+# B_dec = np.deg2rad(0.1253)  # degrés
 
-B_vec_norm = np.array([
-    np.sin(B_inc) * np.cos(B_dec),
-    np.sin(B_inc) * np.sin(B_dec),
-    np.cos(B_inc),
-]) / np.linalg.norm(np.array([
-    np.sin(B_inc) * np.cos(B_dec),
-    np.sin(B_inc) * np.sin(B_dec),
-    np.cos(B_inc),
-]))
+# B_vec_norm = np.array([
+#     np.sin(B_inc) * np.cos(B_dec),
+#     np.sin(B_inc) * np.sin(B_dec),
+#     np.cos(B_inc),
+# ]) / np.linalg.norm(np.array([
+#     np.sin(B_inc) * np.cos(B_dec),
+#     np.sin(B_inc) * np.sin(B_dec),
+#     np.cos(B_inc),
+# ]))
 
-B_vec = B_vec_norm * modulus * 1e-6  # en T (tesla)
+# B_vec = B_vec_norm * modulus * 1e-6  # en T (tesla)
 
-# # # For the NJ simulation
-# B_dec = 0.
-# B_inc = np.pi/2. + 1.0609856522873529
-# # Magnetic field direction (unit) vector
-# Bvec = np.array([np.sin(B_inc)*np.cos(B_dec),np.sin(B_inc)*np.sin(B_dec),np.cos(B_inc)])
+# # For the NJ simulation
+B_dec = 0.
+B_inc = np.pi/2. + 1.0609856522873529
+# Magnetic field direction (unit) vector
+Bvec = np.array([np.sin(B_inc)*np.cos(B_dec),np.sin(B_inc)*np.sin(B_dec),np.cos(B_inc)])
 
-# B_vec_norm = Bvec / np.linalg.norm(Bvec)
-# B_vec = B_vec_norm
+B_vec_norm = Bvec / np.linalg.norm(Bvec)
+B_vec = B_vec_norm
 
 # ======================
 # Noise / detector
 # ======================
 
-# jitter_time = 5e-9                # s
-# galactic_noise_floor = 8.0        # µV (aucune idée j'ai pas vérifié)
-# assym_coeff = 0.01
-# cr = 1.0
-# amplitude_uncertainty = 0.075  # relative uncertainty on amplitude measurement
-
-# For the NJ simulation
-jitter_time = 1e-9                # s
-galactic_noise_floor = 0.0        # µV (aucune idée j'ai pas vérifié)
-assym_coeff = 0.01
+# for AN
 cr = 1.0
-amplitude_uncertainty = 0.1  # relative uncertainty on amplitude measurement
+jitter_time = 5e-9                # s
+galactic_noise_floor = 8.0        # µV (aucune idée j'ai pas vérifié)
+assym_coeff = 0.01
+amplitude_uncertainty = 0.075  # relative uncertainty on amplitude measurement
+
+# # for NJ
+# cr = 1.0
+# jitter_time = 1e-9                # s
+# galactic_noise_floor = 0.0        # µV (aucune idée j'ai pas vérifié)
+# assym_coeff = 0.01
+# amplitude_uncertainty = 0.1  # relative uncertainty on amplitude measurement
+
 
 # ======================
 # Interpolation

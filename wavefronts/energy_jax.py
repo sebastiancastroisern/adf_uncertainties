@@ -6,7 +6,7 @@ import pandas as pd
 # get the correction coefficients from the CSV file
 df_coeffs = pd.read_csv('wavefronts/correction_coefficients.csv')
 df_coeffs = df_coeffs[df_coeffs['value'] != 0.0]
-jpn_coeffs = jnp.array(df_coeffs['value'].values)
+jnp_coeffs = jnp.array(df_coeffs['value'].values)
 
 # Load Linsley atmospheric density model (height vs density)
 linsey_atmosphere = pd.read_parquet("wavefronts/linsley_atmosphere.parquet")
@@ -92,7 +92,10 @@ def jax_sin_alpha(theta, phi, B_norm=pr.B_vec_norm):
             Sine of the angle between shower axis and geomagnetic field """
 
     K = build_K_vector(theta, phi)
-
+    # alpha = jnp.arccos(jnp.dot(K, B_norm))
+    # sin_alpha = jnp.sin(alpha)
+    
+    # return sin_alpha
     return jnp.linalg.norm(jnp.cross(K, B_norm))
 
 def jax_build_Xsource(SWF_rad):
@@ -127,12 +130,12 @@ def jax_altitude(SWF_rad: jnp.array):
 
     return jnp.sqrt(R2 + (X_source[2] + pr.R_earth)**2) - pr.R_earth
 
-def jax_energy_recons(recons_rad: jnp.array, jpn_coeffs: jnp.array) -> float:
+def jax_energy_recons(recons_rad: jnp.array, jnp_coeffs: jnp.array) -> float:
     """ Reconstruct energy from radio wavefront parameters in radians
     Inputs:
         recons_rad: jnp.array
             Array of reconstructed parameters [theta, phi, R_source, t_s, ADF parameters] in radians, meters and seconds
-        jpn_coeffs: jnp.array
+        jnp_coeffs: jnp.array
             Array of linear regression coefficients
     Outputs:
         energy: float
@@ -144,15 +147,17 @@ def jax_energy_recons(recons_rad: jnp.array, jpn_coeffs: jnp.array) -> float:
     Xsource_alt = jax_altitude(SWF)
     rho_Xsource_kg_m3 = density_jax(Xsource_alt * 1e2) * 1e3  # convert g/cm^3 to kg/m^3
 
-    sinalpha = jax_sin_alpha(ADF[0], ADF[1])
+    sinalpha = jax_sin_alpha(ADF[0], ADF[1]) # radians
 
     features = jax_poly_features_3(sinalpha, rho_Xsource_kg_m3)
 
-    A_norm_pred = jax_linreg_predict(features, jpn_coeffs)
+    A_norm_pred = jax_linreg_predict(features, jnp_coeffs)
 
-    energy = ADF[3] / (A_norm_pred * sinalpha)
+    energy = (ADF[3] / (A_norm_pred * sinalpha))
 
     return energy
+
+jax_energy_recons_jit = jax.jit(jax_energy_recons)
 
 def jax_energy_and_uncertainty(recons_rad: jnp.array, cov_mat: jnp.array, jnp_coeffs: jnp.array) -> jnp.array:
     """
@@ -184,3 +189,20 @@ def jax_energy_and_uncertainty(recons_rad: jnp.array, cov_mat: jnp.array, jnp_co
     energy_uncertainty = jnp.sqrt(jnp.abs(variance)) 
 
     return jnp.array([energy, energy_uncertainty])
+
+jax_energy_and_uncertainty_jit = jax.jit(jax_energy_and_uncertainty)
+
+def jax_rho_recons(SWF_rad: jnp.array) -> float:
+    """ Reconstruct air density from radio wavefront parameters in radians
+    Inputs:
+        SWF_rad: jnp.array
+            Array of SWF parameters [theta, phi, R_source, t_s] in radians, meters and seconds
+    Outputs:
+        rho_Xsource_kg_m3: float
+            Reconstructed density at the source position in kg/m^3"""
+
+
+    Xsource_alt = jax_altitude(SWF_rad)
+    rho_Xsource_kg_m3 = density_jax(Xsource_alt * 1e2) * 1e3  # convert g/cm^3 to kg/m^3
+
+    return rho_Xsource_kg_m3

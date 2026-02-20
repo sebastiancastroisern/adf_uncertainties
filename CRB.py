@@ -687,7 +687,7 @@ def recons_energy_all_crb(ncoincs: int, ADF_deg: np.ndarray, SWF_deg: np.ndarray
     for i in tqdm(range(ncoincs), desc='Energy reconstruction...'):
         SWF_ADF_rad = params_rad[i]
         cov_mat     = cov_mats[i]
-        energies[i], energies_uncertainty[i] = jax.jit(ej.jax_energy_and_uncertainty)(SWF_ADF_rad, cov_mat, jpn_coeffs)
+        energies[i], energies_uncertainty[i] = ej.jax_energy_and_uncertainty_jit(SWF_ADF_rad, cov_mat, jpn_coeffs)
         if verbose:
             print(f"Coincidence {i}: Energy = {energies[i]:.3e} EeV ± {energies_uncertainty[i]:.3e} EeV")
 
