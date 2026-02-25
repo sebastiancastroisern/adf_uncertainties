@@ -208,58 +208,42 @@ def add_df_columns(df: pd.DataFrame, events_ids: np.ndarray, SWF_res: np.ndarray
     Outputs:
         df: pandas DataFrame with added columns
     """
-    if SWF_res is not None:
-        df_extra = pd.DataFrame(SWF_res, columns=['recons_alpha', 'recons_beta', 'recons_rxmax', 'recons_t0'])
+    def assign_columns(df, data, col_names, events_ids):
+        """Assign or replace columns in df, aligned on event_idx."""
+        df_extra = pd.DataFrame(data, columns=col_names)
         df_extra['event_idx'] = events_ids
-        df = df.merge(df_extra, on='event_idx', how='left')
+        df_extra = df_extra.set_index('event_idx')
+        for col in col_names:
+            df[col] = df['event_idx'].map(df_extra[col])
+        return df
+
+    if SWF_res is not None:
+        df = assign_columns(df, SWF_res, ['recons_alpha', 'recons_beta', 'recons_rxmax', 'recons_t0'], events_ids)
 
     if SWF_loss is not None:
-        df_extra = pd.DataFrame(SWF_loss, columns=['SWF_loss'])
-        df_extra['event_idx'] = events_ids
-        df = df.merge(df_extra, on='event_idx', how='left')
+        df = assign_columns(df, SWF_loss.reshape(-1,1), ['SWF_loss'], events_ids)
 
     if ADF_res is not None:
-        first_ten_ids = events_ids[:5]
-        print(f"First 5 event ids: {first_ten_ids}")
-        print(f"First 5 df event_idx: {df['event_idx'].values[:5]}")
-        print(f"Frist 5 true theta: {df['true_theta'].values[:5]}")
-        print(f"frist 5 recons theta: {ADF_res[:5,0]}")
-        df_extra = pd.DataFrame(ADF_res, columns=['recons_theta', 'recons_phi', 'recons_delta_omega', 'recons_amplitude'])
-        df_extra['event_idx'] = events_ids
-        df = df.merge(df_extra, on='event_idx', how='left')
+        df = assign_columns(df, ADF_res, ['recons_theta', 'recons_phi', 'recons_delta_omega', 'recons_amplitude'], events_ids)
 
     if ADF_loss is not None:
-        df_extra = pd.DataFrame(ADF_loss, columns=['ADF_loss'])
-        df_extra['event_idx'] = events_ids
-        df = df.merge(df_extra, on='event_idx', how='left')
+        df = assign_columns(df, ADF_loss.reshape(-1,1), ['ADF_loss'], events_ids)
 
     if CRB_res is not None:
-        df_extra = pd.DataFrame(CRB_res, columns=['stds_alpha', 'stds_beta', 'stds_rxmax', 'stds_t0', 'stds_theta', 'stds_phi', 'stds_delta_omega', 'stds_amplitude'])
-        df_extra['event_idx'] = events_ids
-        df = df.merge(df_extra, on='event_idx', how='left')
+        df = assign_columns(df, CRB_res, ['stds_alpha', 'stds_beta', 'stds_rxmax', 'stds_t0', 'stds_theta', 'stds_phi', 'stds_delta_omega', 'stds_amplitude'], events_ids)
 
     if CRB_ADF_only is not None:
-        df_extra = pd.DataFrame(CRB_ADF_only, columns=['stds_theta_adf', 'stds_phi_adf', 'stds_delta_omega_adf', 'stds_amplitude_adf'])
-        df_extra['event_idx'] = events_ids
-        df = df.merge(df_extra, on='event_idx', how='left')
+        df = assign_columns(df, CRB_ADF_only, ['stds_theta_adf', 'stds_phi_adf', 'stds_delta_omega_adf', 'stds_amplitude_adf'], events_ids)
 
     if energies is not None and energies_uncertainty is not None:
-        df_extra = pd.DataFrame(np.array([[energies[i], energies_uncertainty[i]] for i in range(len(energies))]), columns=['recons_energy', 'recons_energy_uncertainty'])
-        df_extra['event_idx'] = events_ids
-        df = df.merge(df_extra, on='event_idx', how='left')
+        df = assign_columns(df, np.stack([energies, energies_uncertainty], axis=1), ['recons_energy', 'recons_energy_uncertainty'], events_ids)
 
     if grammages is not None:
-        df_extra = pd.DataFrame(grammages, columns=['recons_grammage'])
-        df_extra['event_idx'] = events_ids
-        df = df.merge(df_extra, on='event_idx', how='left')
+        df = assign_columns(df, np.array(grammages).reshape(-1,1), ['recons_grammage'], events_ids)
 
     if xcore is not None:
-        df_extra = pd.DataFrame(xcore, columns=['x_core', 'y_core', 'z_core'])
-        df_extra['event_idx'] = events_ids
-        df = df.merge(df_extra, on='event_idx', how='left')
-        df_extra = pd.DataFrame(np.sqrt(xcore[:,0]**2 + xcore[:,1]**2), columns=['dist_xcore'])
-        df_extra['event_idx'] = events_ids
-        df = df.merge(df_extra, on='event_idx', how='left')
+        df = assign_columns(df, xcore, ['x_core', 'y_core', 'z_core'], events_ids)
+        df = assign_columns(df, np.sqrt(xcore[:,0]**2 + xcore[:,1]**2).reshape(-1,1), ['dist_xcore'], events_ids)
 
     return df
 
@@ -1111,7 +1095,7 @@ def main():
     if not os.path.exists(os.path.join(file_path, 'results_dataframe.parquet')) or (os.path.getmtime(os.path.join(file_path, 'results_dataframe.parquet')) - time.time()) > 21*24*3600: 
         run_CRB = run_SWF = run_ADF = run_grammage = run_energy = True
     if args.tout : run_SWF = run_ADF = run_CRB = run_grammage = run_energy = True # Force run of all steps if --tout is specified
-    
+
     print('-------------- Starting CRB Calculations --------------\n')
 
     # --- Compute PWF ---
