@@ -8,7 +8,6 @@ import numpy           as np
 import pandas          as pd
 import jax.numpy       as jnp
 import multiprocessing as mp
-import MCEq.geometry.density_profiles as dp
 import wavefronts.energy_jax          as ej
 import wavefronts.params_config       as pr
 import wavefronts.loader_txt          as lo
@@ -839,7 +838,7 @@ def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_re
     cpt          = 0
     cov_mats     = np.full((n_to_process, 4, 4), np.nan)
 
-    for current_recons in tqdm(range(n_to_process), desc='ADF on CRB computing...'):
+    for current_recons in tqdm(range(n_to_process), desc='ADF + SWF CRB computing...'):
         n_ants = nants[current_recons]
         ant_coords = antennas_coords[current_recons, :n_ants] # Coords
         
@@ -1041,7 +1040,7 @@ def main():
 
     print("Loading coincidence data...")
     # Load data from .npy files
-    nants, antenna_coords_array, peak_time_array_m, peak_time_array_s, peak_amp_array, ncoincs = lo.load_data_files_np(file_path)
+    nants, antenna_coords_array, peak_time_array_m, peak_time_array_s, peak_amp_array, ncoincs = lo.load_data_files_np2(file_path)
     n_to_process = min(ncoincs, n_max) if args.nmax is not None else ncoincs
 
     # Build results dataframe
@@ -1088,7 +1087,8 @@ def main():
         SWF_res = results_df[['recons_alpha', 'recons_beta', 'recons_rxmax', 'recons_t0']].values
         print("[SWF loaded]")
 
-
+    results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet"))
+    
     # --- Load or compute ADF ---
     if run_ADF or args.adf:
         print("\nComputing ADF...")
@@ -1103,6 +1103,7 @@ def main():
         ADF_res = results_df[['recons_theta', 'recons_phi', 'recons_delta_omega', 'recons_amplitude']].values
         print("[ADF loaded]")
 
+    results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet"))
 
     # --- Compute CRB ---
     if run_CRB or args.crb:
@@ -1114,6 +1115,7 @@ def main():
         print("[CRB loaded]")
         CRB_res = results_df[['stds_alpha', 'stds_beta', 'stds_rxmax', 'stds_t0', 'stds_theta', 'stds_phi', 'stds_delta_omega', 'stds_amplitude']].values
 
+    results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet"))
 
     # --- Compute energy estimates ---
     if run_energy or args.energy:
@@ -1124,6 +1126,7 @@ def main():
     else:
         print("\n[Energy NOT computed] => already in dataframe")
 
+    results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet"))
 
     # --- Compute grammage estimates ---
     if run_grammage or args.grammage:

@@ -48,6 +48,26 @@ def load_data_files_np(file_path: str, n_to_process: int=None) -> tuple:
 
     return (nants, antenna_coords_array, peak_time_array_m, peak_time_array_s, peak_amp_array, ncoincs, events_ids)
 
+def load_data_files_np2(file_path: str, n_to_process: int=None) -> tuple:
+    """ Load data files from numpy files.
+    Inputs:
+        file_path: str
+            Path to the directory containing the result files
+            n_to_process: int, optional
+    Outputs:
+        tuple:
+            A tuple containing nants, antenna_coords_array, peak_time_array_m, peak_time_array_s, peak_amp_array, ncoincs
+    """
+    data_file_path = os.path.join(file_path,'data_npy')
+    nants                = np.load(os.path.join(data_file_path,'co_nants.npy'))
+    antenna_coords_array = np.load(os.path.join(data_file_path,'co_antenna_coords_array.npy'))
+    peak_time_array_m    = np.load(os.path.join(data_file_path,'co_peak_time_array.npy'))
+    peak_time_array_s    = np.load(os.path.join(data_file_path,'co_peak_time_array_in_s.npy'))
+    peak_amp_array       = np.load(os.path.join(data_file_path,'co_peak_amp_array.npy'))
+    ncoincs              = int(np.load(os.path.join(data_file_path,'co_ncoincs.npy'))[0])
+
+    return (nants, antenna_coords_array, peak_time_array_m, peak_time_array_s, peak_amp_array, ncoincs)
+
 def load_adf_res_jnp(file_path: str, n_to_process: int=None) -> tuple:
     """ Load ADF results from numpy files.
     Inputs:

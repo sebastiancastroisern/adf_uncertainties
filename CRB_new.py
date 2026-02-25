@@ -73,8 +73,10 @@ def npy_files_builder(file_path: str, data_filepath: str) -> None:
     ), "Mismatch between event indices in coordinate and coincidence files"
 
 
-    unic_events = np.unique(event_idx_coinc) # unique event indices in the coincidence data
-    good_events = [u for u in unic_events if np.sum(event_idx_coinc==u) >= 2] # events with at least 2 antennas in coincidence
+    _, idx = np.unique(event_idx_coord, return_index=True)
+    events_ids = event_idx_coord[np.sort(idx)] # unique event indices in the coincidence data
+
+    good_events = [u for u in events_ids if np.sum(event_idx_coinc==u) >= 2] # events with at least 2 antennas in coincidence
     nco = len(good_events)
 
     nants = np.array([np.sum(event_idx_coinc==u) for u in good_events], dtype=int)  # number of antennas in coincidence for each good event
@@ -217,6 +219,11 @@ def add_df_columns(df: pd.DataFrame, events_ids: np.ndarray, SWF_res: np.ndarray
         df = df.merge(df_extra, on='event_idx', how='left')
 
     if ADF_res is not None:
+        first_ten_ids = events_ids[:5]
+        print(f"First 5 event ids: {first_ten_ids}")
+        print(f"First 5 df event_idx: {df['event_idx'].values[:5]}")
+        print(f"Frist 5 true theta: {df['true_theta'].values[:5]}")
+        print(f"frist 5 recons theta: {ADF_res[:5,0]}")
         df_extra = pd.DataFrame(ADF_res, columns=['recons_theta', 'recons_phi', 'recons_delta_omega', 'recons_amplitude'])
         df_extra['event_idx'] = events_ids
         df = df.merge(df_extra, on='event_idx', how='left')
@@ -258,7 +265,7 @@ def add_df_columns(df: pd.DataFrame, events_ids: np.ndarray, SWF_res: np.ndarray
 
 # ============================ PWF ============================ #
 
-def PWF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray, peak_time_array: np.ndarray, n_max: int=None, verbose: bool=False) -> np.ndarray:
+def PWF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray, peak_time_array: np.ndarray, n_max: int, verbose: bool=False) -> np.ndarray:
     """ PWF reconstruction for all coincidences
     Inputs:
         ncoincs: number of coincidences
@@ -269,7 +276,7 @@ def PWF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray
         PWF_res: dictionary containing PWF reconstruction results
     """
 
-    n_to_process = ncoincs if n_max is None else min(ncoincs, n_max)
+    n_to_process = n_max
 
     # t0 = time.time()
     rad2deg = 180.0 / np.pi
@@ -1108,7 +1115,7 @@ def main():
     print('-------------- Starting CRB Calculations --------------\n')
 
     # --- Compute PWF ---
-    PWF_res = PWF_recons(ncoincs, nants, antenna_coords_array, peak_time_array_m, n_max=n_max, verbose=verbose_bool)
+    PWF_res = PWF_recons(ncoincs, nants, antenna_coords_array, peak_time_array_m, n_max=n_to_process, verbose=verbose_bool)
     print("[PWF Computed]")
 
     # --- Load or compute SWF ---
@@ -1126,6 +1133,7 @@ def main():
         SWF_res = results_df[['recons_alpha', 'recons_beta', 'recons_rxmax', 'recons_t0']].values
         print("[SWF loaded]")
 
+    results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet")) # Save intermediate results
 
     # --- Load or compute ADF ---
     if run_ADF or args.adf:
@@ -1141,6 +1149,7 @@ def main():
         ADF_res = results_df[['recons_theta', 'recons_phi', 'recons_delta_omega', 'recons_amplitude']].values
         print("[ADF loaded]")
 
+    results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet"))
 
     # --- Compute CRB ---
     if run_CRB or args.crb:
@@ -1152,6 +1161,7 @@ def main():
         print("[CRB loaded]")
         CRB_res = results_df[['stds_alpha', 'stds_beta', 'stds_rxmax', 'stds_t0', 'stds_theta', 'stds_phi', 'stds_delta_omega', 'stds_amplitude']].values
 
+    results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet"))
 
     # --- Compute energy estimates ---
     if run_energy or args.energy:
@@ -1162,6 +1172,7 @@ def main():
     else:
         print("\n[Energy NOT computed] => already in dataframe")
 
+    results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet"))
 
     # --- Compute grammage estimates ---
     if run_grammage or args.grammage:
@@ -1171,6 +1182,8 @@ def main():
         results_df = add_df_columns(results_df, events_ids_unique, grammages=grammages)
     else:
         print("[Grammage NOT computed] => already in dataframe")
+
+    results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet"))
 
     Xcores = Xcore_recons(SWF_res, ADF_res)
     results_df = add_df_columns(results_df, events_ids_unique, xcore=Xcores)
