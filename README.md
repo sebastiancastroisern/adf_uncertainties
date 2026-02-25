@@ -14,7 +14,7 @@ You then need to run `CRB.py` **before** running `MCMC.py`, in order to have the
 
 ## Requirements 
 
-You need 2 `.txt` file to be able to run the scripts. You first need `Rec_coinctable.txt` a file that has the informations about each coincidence of the set of EAS you decide to study, with the following columns: EventID | peak time [s] | peak amplitude [uV/m] | DU_ID. You then also need a `coord_antennas.txt` file to give you the coordinates of the antennas, with the following columns : EventID | x antenna [m] | y antenna [m] | z antenna [m] | DU_ID. My pipeline can reconstruct those files frome DC2 datasets.
+You need 2 `.txt` file to be able to run the scripts. You first need `Rec_coinctable.txt` a file that has the informations about each coincidence of the set of EAS you decide to study, with the following columns: EventID | peak time [s] | peak amplitude [uV/m] | DU_ID. You then also need a `coord_antennas.txt` file to give you the coordinates of the antennas, with the following columns : EventID | x antenna [m] | y antenna [m] | z antenna [m] | DU_ID. [My pipeline](https://github.com/sebastiancastroisern/DC2_root2txt) can reconstruct those files frome DC2 datasets.
 
 Modules required can be installed as such:
 pip install -r requirement.txt
@@ -64,6 +64,10 @@ For the **samples** : An HDF5 file containing a mcmc_emcee_results group with on
 ## Run tests
 
 To run the test on the files, please use the argument `--test` when running the files.
+
+## CRB_old.py
+
+This file is used to conduct an analysis on the old root extractor pipeline from Marion Guelfand [see her github](https://github.com/sebastiancastroisern/reconstruction_marion/tree/main/Data_processing). 
 
 ## Author 
 
