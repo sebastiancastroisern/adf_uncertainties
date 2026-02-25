@@ -44,8 +44,9 @@ def load_data_files_np(file_path: str, n_to_process: int=None) -> tuple:
     peak_time_array_s    = np.load(os.path.join(data_file_path,'co_peak_time_array_in_s.npy'))
     peak_amp_array       = np.load(os.path.join(data_file_path,'co_peak_amp_array.npy'))
     ncoincs              = int(np.load(os.path.join(data_file_path,'co_ncoincs.npy'))[0])
+    events_ids           = np.load(os.path.join(data_file_path,'an_event_indices.npy'))
 
-    return (nants, antenna_coords_array, peak_time_array_m, peak_time_array_s, peak_amp_array, ncoincs)
+    return (nants, antenna_coords_array, peak_time_array_m, peak_time_array_s, peak_amp_array, ncoincs, events_ids)
 
 def load_adf_res_jnp(file_path: str, n_to_process: int=None) -> tuple:
     """ Load ADF results from numpy files.

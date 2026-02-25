@@ -14,7 +14,7 @@ You then need to run `CRB.py` **before** running `MCMC.py`, in order to have the
 
 ## Requirements 
 
-You need 2 `.txt` file to be able to run the scripts. You first need `Rec_coinctable.txt` a file that has the informations about each coincidence of the set of EAS you decide to study, with the following columns: EventID | peak time [s] | peak amplitude [uV/m]. You then also need a `coord_antennas.txt` file to give you the coordinates of the antennas, with the following columns : x antenna [m] | y antenna [m] | z antenna [m]. Marion Guelfand has a pipeline to extract those values from root files, but you can get this information from other methods.
+You need 2 `.txt` file to be able to run the scripts. You first need `Rec_coinctable.txt` a file that has the informations about each coincidence of the set of EAS you decide to study, with the following columns: EventID | peak time [s] | peak amplitude [uV/m] | DU_ID. You then also need a `coord_antennas.txt` file to give you the coordinates of the antennas, with the following columns : EventID | x antenna [m] | y antenna [m] | z antenna [m] | DU_ID. My pipeline can reconstruct those files frome DC2 datasets.
 
 Modules required can be installed as such:
 pip install -r requirement.txt
@@ -22,7 +22,7 @@ pip install -r requirement.txt
 
 ## Usage
 
-python3 CRB.py --multi --filepath path/to/txt/files
+python3 CRB.py --filepath path/to/txt/files
 python3 MCMC.py --multi --filepath path/to/txt/files
 
 (other options are available to you as arguments, although should not be needed in a first run of the algorithms)
