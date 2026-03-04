@@ -1074,7 +1074,7 @@ def main():
     events_ids_unique = events_ids_unique[:n_to_process]
 
     # Build results dataframe
-    if not os.path.exists(os.path.join(file_path, 'results_dataframe.parquet')) or args.test:
+    if not os.path.exists(os.path.join(file_path, 'results_dataframe.parquet')) or args.test or args.tout:
         results_df = build_result_dataframe(file_path=file_path, nmax = n_to_process)
     else:
         results_df = pd.read_parquet(os.path.join(file_path, 'results_dataframe.parquet'))
