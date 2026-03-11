@@ -55,6 +55,7 @@ The code should generate you a dozen of `.npy` files (saved in `data_npy`) to be
 - for energy calculations: '`recons_energy`', '`recons_energy_uncertainty`'
 - for grammage calculations: '`recons_grammage`'
 - for X_core reconstruction: '`x_core`', '`y_core`', '`z_core`' and '`dist_xcore`'
+- `std_psi` the angular error based on CRB calculations
   In addition to the dataframe of the simulation data.
 
 The `MCMC.py` can either give you back a file with all the samples and logprob values (`emcee_samples_res.h5`) if you chose to run it sequentially (to save up memory), or simply give back the mode of the distribution (`emcee_modes_res.h5`) if you decide to run it with multiprocessing. 
