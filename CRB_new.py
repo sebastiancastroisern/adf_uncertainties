@@ -287,7 +287,7 @@ def PWF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray
 
 # ============================ SWF ============================ #
 
-def SWF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray, peak_time_array: np.ndarray, PWF_res: np.ndarray, file_path: str, verbose: bool=False, n_max: int=None, event_type: str='EAS'):
+def SWF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray, peak_time_array: np.ndarray, PWF_res: np.ndarray, verbose: bool=False, n_max: int=None, event_type: str='EAS'):
         """ SWF reconstruction for all coincidences
         Inputs:
             ncoincs: number of coincidences
@@ -323,7 +323,6 @@ def SWF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray
                 SWF_res[i,:] = np.nan
         
         print(f"\n[{time.time()-t0:.3f}s] Spherical Wave Fit reconstruction done for {n_to_process} coincidences")
-        # np.save(os.path.join(file_path, "SWF_res.npy"), {'data': SWF_res, 'columns': ['alpha_deg', 'beta_deg', 'rxmax', 't0'], 'loss': SWF_losses})
 
         return SWF_res, SWF_losses
 
@@ -374,7 +373,7 @@ def worker_function(args: Tuple) -> Tuple[int, float, float, float, float]:
     return SWF_single_recon(i, alpha_PWF_rad, beta_PWF_rad, ant_coords, 
                             peak_time_arr, verbose, event_type)
 
-def SWF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray, peak_time_array: np.ndarray, PWF_res: np.ndarray, file_path: str, verbose: bool=False, event_type: str='EAS', n_max: int=None) -> np.ndarray:
+def SWF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray, peak_time_array: np.ndarray, PWF_res: np.ndarray, verbose: bool=False, event_type: str='EAS', n_max: int=None) -> np.ndarray:
     """
     SWF reconstruction with multiprocessing.
     
@@ -388,7 +387,6 @@ def SWF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndar
     antenna_coords_array : array - Antenna coordinates [ncoincs, max_nants, 3]
     peak_time_array : array - Peak times [ncoincs, max_nants]
     PWF_res : array - PWF results [ncoincs, n_params], alpha/beta at columns 0/1
-    file_path : str - Save path
     n_max : int - Max coincidences to process
     verbose : bool - Detailed output
     event_type : str - 'EAS' or other
@@ -443,16 +441,12 @@ def SWF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndar
     
     print(f"\n[{time.time()-t1:.3f}s] SWF reconstruction done for {n_to_process} coincidences")
     
-    # Save as .npy only
-    # np.save(os.path.join(file_path, "SWF_res.npy"), 
-    #         {'data': SWF_res, 'columns': ['alpha_deg', 'beta_deg', 'rxmax', 't0'], 'loss': SWF_losses})
-    
     return SWF_res, SWF_losses
 
 
 # ============================ ADF ============================ #
 
-def ADF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray, peak_amp_array: np.ndarray, PWF_res: np.ndarray, SWF_res: np.ndarray, file_path: str, verbose: bool=False, n_max: int=None) -> np.ndarray:
+def ADF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray, peak_amp_array: np.ndarray, PWF_res: np.ndarray, SWF_res: np.ndarray, verbose: bool=False, n_max: int=None) -> np.ndarray:
     """ ADF reconstruction for all coincidences 
     Inputs:
         ncoincs: number of coincidences
@@ -490,8 +484,7 @@ def ADF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray
         ADF_losses[i] = loss
 
     print(f"[{time.time()-t0:.3f}s] ADF done for {n_to_process} coincidences")
-    # np.save(os.path.join(file_path, "ADF_res.npy"), 
-            # {'data': ADF_res, 'columns': ['theta_deg','phi_deg','dw','Amp'], 'loss': ADF_losses})
+
     return ADF_res, ADF_losses
 
 def ADF_single_recon(i: int, theta_PWF_rad: float, phi_PWF_rad: float, rx_max: float, alpha_rad: float, beta_rad: float, ant_coords: np.ndarray, peak_amp_arr: np.ndarray, verbose: bool=False) -> Tuple[int, float, float, float, float]:
@@ -539,7 +532,7 @@ def worker_function_adf(args: Tuple) -> Tuple[int, float, float, float, float]:
     i, th, ph, rx, al, be, ant_coords, peak_amp_arr, verbose = args
     return ADF_single_recon(i, th, ph, rx, al, be, ant_coords, peak_amp_arr, verbose)
 
-def ADF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray, peak_amp_array: np.ndarray, PWF_res: np.ndarray, SWF_res: np.ndarray, file_path: str, verbose: bool=False, n_max: int=None) -> np.ndarray:
+def ADF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray, peak_amp_array: np.ndarray, PWF_res: np.ndarray, SWF_res: np.ndarray, verbose: bool=False, n_max: int=None) -> np.ndarray:
     """
     ADF reconstruction with multiprocessing.
     
@@ -554,7 +547,6 @@ def ADF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndar
     peak_amp_array : array - Peak amplitudes [ncoincs, max_nants]
     PWF_res : array - PWF results [ncoincs, n_params], theta/phi at columns 0/1
     SWF_res : array - SWF results [ncoincs, n_params], rxmax at column 2
-    file_path : str - Save path
     n_max : int - Max coincidences to process
     groundAltitude : float - Ground altitude
     verbose : bool - Detailed output
@@ -614,23 +606,18 @@ def ADF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndar
     # Free memory
     del results
     
-    # Save as .npy only
-    # np.save(os.path.join(file_path, "ADF_res.npy"), 
-            # {'data': ADF_res, 'columns': ['theta_deg', 'phi_deg', 'dw', 'Amp'], 'loss': ADF_losses})
-    
     print(f"\n[{time.time()-t0:.3f}s] ADF reconstruction done for {n_to_process} coincidences")
     return ADF_res, ADF_losses
 
 
 # ======================= Energy reconstruction ======================= #
 
-def recons_energy_all_cov(ncoincs: int, ADF_deg: np.ndarray, SWF_deg: np.ndarray, cov_mats: np.ndarray, output_path: str, csv_file_path: str=pr.csv_coeff_corr, verbose: bool=False, n_max: int=None) -> np.ndarray:
+def recons_energy_all_cov(ncoincs: int, ADF_deg: np.ndarray, SWF_deg: np.ndarray, cov_mats: np.ndarray, csv_file_path: str=pr.csv_coeff_corr, verbose: bool=False, n_max: int=None) -> np.ndarray:
     """ Function reconstructing the energy for all coincidences
     Inputs:
         ncoincs: number of coincidences
         ADF_res: dictionary containing ADF reconstruction results (in degrees)
         SWF_res: dictionary containing SWF reconstruction results (in degrees)
-        file_path: path to save the results
         n_max: maximum number of coincidences to process
         verbose: boolean for verbosity
         csv_file_path: path to the CSV file containing the correction coefficients
@@ -662,24 +649,22 @@ def recons_energy_all_cov(ncoincs: int, ADF_deg: np.ndarray, SWF_deg: np.ndarray
         energies[i], energies_uncertainty[i] = jax.jit(ej.jax_energy_and_uncertainty)(SWF_ADF_rad, cov_mat, jpn_coeffs)
         if verbose:
             print(f"Coincidence {i}: Energy = {energies[i]:.3e} EeV ± {energies_uncertainty[i]:.3e} EeV")
-    
-    # np.save(os.path.join(output_path, "energies.npy"), {'energies': energies*1e18, 'uncertainties': energies_uncertainty*1e18, 'columns': ['energy_eV', 'energy_uncertainty_eV']}, allow_pickle=True)
 
     return energies, energies_uncertainty
 
-def recons_energy_all_crb(ncoincs: int, ADF_deg: np.ndarray, SWF_deg: np.ndarray, CRB_res: np.ndarray, output_path: str, csv_file_path: str=pr.csv_coeff_corr, verbose: bool=False, n_max: int=None) -> np.ndarray:
+def recons_energy_all_crb(ncoincs: int, ADF_deg: np.ndarray, SWF_deg: np.ndarray, CRB_res: np.ndarray, csv_file_path: str=pr.csv_coeff_corr, verbose: bool=False, n_max: int=None) -> np.ndarray:
     """ Function reconstructing the energy for all coincidences
     Inputs:
         ncoincs: number of coincidences
         ADF_res: dictionary containing ADF reconstruction results (in degrees)
         SWF_res: dictionary containing SWF reconstruction results (in degrees)
-        file_path: path to save the results
         n_max: maximum number of coincidences to process
         verbose: boolean for verbosity
         csv_file_path: path to the CSV file containing the correction coefficients
     Outputs:
         energies: array of reconstructed energies per coincidence in eV
-        energies_uncertainty: array of uncertainties of reconstructed energies per coincidence in eV """
+        energies_uncertainty: array of uncertainties of reconstructed energies per coincidence in eV
+         uncertainties are first order approximations using the CRB as input covariance matrices for the parameters """
     
     t0 = time.time()
     
@@ -715,15 +700,13 @@ def recons_energy_all_crb(ncoincs: int, ADF_deg: np.ndarray, SWF_deg: np.ndarray
 
     print(f"\n[{time.time()-t0:.3f}s] Energy reconstruction done for {ncoincs} coincidences")
     print(f"Percentages of negative energies: {(energies < 0).sum() / ncoincs * 100:.2f}%")
-    
-    # np.save(os.path.join(output_path, "energies.npy"), {'energies': energies*1e18, 'uncertainties': energies_uncertainty*1e18, 'columns': ['energy_eV', 'energy_uncertainty_eV']}, allow_pickle=True)
 
     return energies, energies_uncertainty
 
 
 # ======================= CRB of ADF + SWF ======================= #
 
-def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_res: np.ndarray, ADF_res: np.ndarray, file_path: str, n_max: int=None, verbose: bool=False) -> np.ndarray:
+def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_res: np.ndarray, ADF_res: np.ndarray, n_max: int=None, verbose: bool=False) -> np.ndarray:
 
     """ Function calculating the Cramér-Rao Bound for the joint ADF + SWF reconstruction
     Inputs:
@@ -732,7 +715,6 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
         antennas_coords: array of antenna coordinates per coincidence
         SWF_res: dictionary containing SWF reconstruction results
         ADF_res: dictionary containing ADF reconstruction results
-        file_path: path to save the results
         n_max: maximum number of coincidences to process
         verbose: boolean for verbosity
     Outputs:
@@ -839,7 +821,7 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
     
     return stds, cov_mats
 
-def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_res: np.ndarray, ADF_res: np.ndarray, file_path: str, n_max: int=None, verbose: bool=False) -> np.ndarray:
+def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_res: np.ndarray, ADF_res: np.ndarray, n_max: int=None, verbose: bool=False) -> np.ndarray:
     """ Function calculating the Cramér-Rao Bound for the joint ADF + SWF reconstruction
     Inputs:
         ncoincs: number of coincidences
@@ -847,7 +829,6 @@ def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_re
         antennas_coords: array of antenna coordinates per coincidence
         SWF_res: dictionary containing SWF reconstruction results
         ADF_res: dictionary containing ADF reconstruction results
-        file_path: path to save the results
         n_max: maximum number of coincidences to process
         verbose: boolean for verbosity
     Outputs:
@@ -1000,6 +981,27 @@ def PWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, PWF_re
             # {'data': stds, 'columns': ['std_theta_deg', 'std_phi_deg']}, 
             # allow_pickle=True)
 
+def angular_error(dataframe:pd.DataFrame) -> np.ndarray:
+
+    deg2rad = np.pi / 180.0
+    rad2deg = 180.0 / np.pi
+
+    def std_psi(row):
+        std_theta = row['stds_theta'] * deg2rad
+        std_phi = row['stds_phi'] * deg2rad
+        theta_recons = row['recons_theta'] * deg2rad
+
+        std_psi = np.sqrt( (std_theta)**2 + (std_phi * np.sin(theta_recons))**2 ) * rad2deg
+        return std_psi
+    
+    if not dataframe.empty:
+        dataframe['std_psi'] = dataframe.apply(std_psi, axis=1)
+        print("\n Successfully calculated 'std_psi' for all events.")
+
+    return dataframe
+
+
+
 # ======================= GRAMAMGE ======================= #
 
 def grammage_reconsrtuction(SWF_res: np.ndarray, verbose: bool=False) -> np.ndarray:
@@ -1008,7 +1010,8 @@ def grammage_reconsrtuction(SWF_res: np.ndarray, verbose: bool=False) -> np.ndar
     Inputs:
         SWF_res: array containing SWF reconstruction results (in degrees and meters)
     Outputs:
-        df_results: dataframe with added grammage column (in g/cm^2) """
+        grammages_g_cm2 : array of reconstructed grammages (in g/cm^2)
+    """
     
     SWF_rad = SWF_res.copy()
     SWF_rad[:, :2]  *= np.pi / 180.0
@@ -1171,6 +1174,8 @@ def main():
 
     Xcores = Xcore_recons(SWF_res, ADF_res)
     results_df = add_df_columns(results_df, events_ids_unique, xcore=Xcores)
+
+    results_df = angular_error(results_df)
 
     # Save results dataframe as .parquet
     results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet"))

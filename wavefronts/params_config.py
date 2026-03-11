@@ -57,18 +57,18 @@ B_vec = B_vec_norm * modulus * 1e-6  # en T (tesla)
 # ======================
 
 # for AN
-# cr = 1.0
-# jitter_time = 5e-9                # s
-# galactic_noise_floor = 8.0        # µV (aucune idée j'ai pas vérifié)
-# assym_coeff = 0.01
-# amplitude_uncertainty = 0.075  # relative uncertainty on amplitude measurement
+cr = 1.0
+jitter_time = 5e-9                # s
+galactic_noise_floor = 8.0        # µV (aucune idée j'ai pas vérifié)
+assym_coeff = 0.01
+amplitude_uncertainty = 0.075  # relative uncertainty on amplitude measurement
 
 # for NJ
-cr = 1.0
-jitter_time = 1e-9                # s
-galactic_noise_floor = 0.0        # µV (aucune idée j'ai pas vérifié)
-assym_coeff = 0.01
-amplitude_uncertainty = 0.1  # relative uncertainty on amplitude measurement
+# cr = 1.0
+# jitter_time = 1e-9                # s
+# galactic_noise_floor = 0.0        # µV (aucune idée j'ai pas vérifié)
+# assym_coeff = 0.01
+# amplitude_uncertainty = 0.1  # relative uncertainty on amplitude measurement
 
 
 # ======================
