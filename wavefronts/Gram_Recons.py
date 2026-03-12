@@ -93,8 +93,50 @@ def find_max_alt_point(Xsource_heights: jnp.array, theta_rad: float, max_altitud
 
     return distance
 
-def jax_slant_depth(SWF_rad:jnp.ndarray) -> jnp.ndarray:
+def jax_slant_depth_adf(SWF_rad:jnp.ndarray, ADF_rad:jnp.ndarray) -> jnp.ndarray:
     """Compute atmospheric slant depth along cosmic ray trajectory.
+    
+    Integrates atmospheric density along the ray path from source to 
+    atmosphere boundary using Linsley atmospheric model for one event.
+    
+    Args:
+        SWF_rad: Spherical wavefront parameters [alpha, beta, ...] in radians
+        ADF_rad: Additional parameters 
+    
+    Returns:
+        Total slant depth in g/cm²
+    """
+    num_points = 10000  # Number of sampling points along the ray path
+
+    # Get source position in cartesian coordinates
+    Xsource = compute_Xsource(SWF_rad)
+    # print("Source position (m):", Xsource)
+    # Get source altitude
+    height_cm = jax_altitude(Xsource)
+
+    # Find distance to atmosphere boundary along ray direction
+    max_alt_point_dist_cm = find_max_alt_point(height_cm, ADF_rad[0]) # send the true zenith angle
+    max_alt_point_dist_m = max_alt_point_dist_cm * 1e-2  # convert cm to m
+
+    # Generate sampling points along ray path
+    K_vect = compute_k_vect(ADF_rad[0], ADF_rad[1]) # use the adf angles
+    Max_point = Xsource + K_vect * max_alt_point_dist_m
+    line_points = Max_point + jnp.linspace(0, 1, num_points)[:, None] * (Xsource - Max_point)
+
+    # Evaluate altitude and density at each point
+    heights_along_line_cm = jax_altitude_multi(line_points)
+    densities = jnp.interp(heights_along_line_cm, linsey_atmosphere['height_cm'].values, linsey_atmosphere['density_g_cm3'].values, right=0.0)
+    
+    # Integrate density along path
+    delta_dist = max_alt_point_dist_cm / (num_points - 1)
+    slant_depth = jnp.sum(densities, axis=0) * delta_dist # g/cm^2
+
+    return slant_depth
+
+def jax_slant_depth(SWF_rad:jnp.ndarray) -> jnp.ndarray:
+    """
+    OLD VERSION NOT USED IN CRB_NEX.PY
+    Compute atmospheric slant depth along cosmic ray trajectory using the SWF alpha angle as a proxy for the shower angle.
     
     Integrates atmospheric density along the ray path from source to 
     atmosphere boundary using Linsley atmospheric model for one event.
@@ -133,3 +175,4 @@ def jax_slant_depth(SWF_rad:jnp.ndarray) -> jnp.ndarray:
     return slant_depth
 
 jax_slant_depth_jit = jax.jit(jax_slant_depth)
+jax_slant_depth_adf_jit = jax.jit(jax_slant_depth_adf)

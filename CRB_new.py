@@ -1004,11 +1004,12 @@ def angular_error(dataframe:pd.DataFrame) -> np.ndarray:
 
 # ======================= GRAMAMGE ======================= #
 
-def grammage_reconsrtuction(SWF_res: np.ndarray, verbose: bool=False) -> np.ndarray:
+def grammage_reconsrtuction(SWF_res: np.ndarray, ADF_res: np.ndarray, verbose: bool=False) -> np.ndarray:
 
     """ Function reconstructing the grammage for all coincidences
     Inputs:
         SWF_res: array containing SWF reconstruction results (in degrees and meters)
+        ADF_res: array containing ADF reconstruction results (in degrees)
     Outputs:
         grammages_g_cm2 : array of reconstructed grammages (in g/cm^2)
     """
@@ -1016,9 +1017,12 @@ def grammage_reconsrtuction(SWF_res: np.ndarray, verbose: bool=False) -> np.ndar
     SWF_rad = SWF_res.copy()
     SWF_rad[:, :2]  *= np.pi / 180.0
     SWF_rad = jnp.array(SWF_rad)
+    ADF_rad = ADF_res.copy()
+    ADF_rad[:, :2] *= np.pi / 180.0
+    ADF_rad = jnp.array(ADF_rad)
     grammages_g_cm2 = []
     for i in tqdm(range(SWF_rad.shape[0]), desc='Grammage reconstruction...'):
-        grammages_g_cm2.append(gr.jax_slant_depth_jit(SWF_rad[i, :]))
+        grammages_g_cm2.append(gr.jax_slant_depth_adf_jit(SWF_rad[i, :], ADF_rad[i, :]))
         if verbose:
             print(f"Coincidence {i}: Grammage = {grammages_g_cm2[-1]:.2f} g/cm^2")
 
@@ -1110,9 +1114,9 @@ def main():
         print("\nComputing SWF...")
         if multi_processing:
             print(f"[MULTIPROCESSING] {n_to_process} SWF reconstruction with {mp.cpu_count()-1} CPUs...")
-            SWF_res, SWF_losses = SWF_recons_mp(ncoincs, nants, antenna_coords_array, peak_time_array_s, PWF_res, file_path, verbose=verbose_bool, n_max=n_to_process)
+            SWF_res, SWF_losses = SWF_recons_mp(ncoincs, nants, antenna_coords_array, peak_time_array_s, PWF_res, verbose=verbose_bool, n_max=n_to_process)
         else:
-            SWF_res, SWF_losses = SWF_recons(ncoincs, nants, antenna_coords_array, peak_time_array_s, PWF_res, file_path, verbose=verbose_bool, n_max=n_to_process)
+            SWF_res, SWF_losses = SWF_recons(ncoincs, nants, antenna_coords_array, peak_time_array_s, PWF_res, verbose=verbose_bool, n_max=n_to_process)
         # add results to dataframe
         results_df = add_df_columns(results_df, events_ids_unique, SWF_res=SWF_res, SWF_loss=SWF_losses)
         print("[SWF computed]")
@@ -1127,9 +1131,9 @@ def main():
         print("\nComputing ADF...")
         if multi_processing:
             print(f"[MULTIPROCESSING] {n_to_process} ADF reconstruction with {mp.cpu_count()-1} CPUs...")
-            ADF_res, ADF_losses = ADF_recons_mp(ncoincs, nants, antenna_coords_array, peak_amp_array, PWF_res, SWF_res, file_path, verbose=verbose_bool, n_max=n_to_process)
+            ADF_res, ADF_losses = ADF_recons_mp(ncoincs, nants, antenna_coords_array, peak_amp_array, PWF_res, SWF_res, verbose=verbose_bool, n_max=n_to_process)
         else:
-            ADF_res, ADF_losses = ADF_recons(ncoincs, nants, antenna_coords_array, peak_amp_array, PWF_res, SWF_res, file_path, verbose=verbose_bool, n_max=n_to_process)
+            ADF_res, ADF_losses = ADF_recons(ncoincs, nants, antenna_coords_array, peak_amp_array, PWF_res, SWF_res, verbose=verbose_bool, n_max=n_to_process)
         print("[ADF computed]")
         results_df = add_df_columns(results_df, events_ids_unique, ADF_res=ADF_res, ADF_loss=ADF_losses)
     else:
@@ -1141,8 +1145,8 @@ def main():
     # --- Compute CRB ---
     if run_CRB or args.crb:
         print("\nComputing CRB for ADF + SWF...")
-        CRB_res, cov_mats = ADF_SWF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, n_max=n_to_process, verbose=verbose_bool)
-        CRB_ADF_only, cov_mats_ADF_only = ADF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, n_max=n_to_process, verbose=verbose_bool)
+        CRB_res, cov_mats = ADF_SWF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, n_max=n_to_process, verbose=verbose_bool)
+        CRB_ADF_only, cov_mats_ADF_only = ADF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, n_max=n_to_process, verbose=verbose_bool)
         results_df = add_df_columns(results_df, events_ids_unique, CRB_res=CRB_res, CRB_ADF_only=CRB_ADF_only)
     else: 
         print("[CRB loaded]")
@@ -1154,7 +1158,7 @@ def main():
     if run_energy or args.energy:
         print('\n-------------- Starting Energy Reconstruction --------------')
         print("\nComputing energy estimates from ADF results...")
-        energies, energies_uncertainty = recons_energy_all_crb(ncoincs, ADF_res, SWF_res, CRB_res, file_path, csv_file_path=pr.csv_coeff_corr, verbose=verbose_bool, n_max=n_to_process)
+        energies, energies_uncertainty = recons_energy_all_crb(ncoincs, ADF_res, SWF_res, CRB_res, csv_file_path=pr.csv_coeff_corr, verbose=verbose_bool, n_max=n_to_process)
         results_df = add_df_columns(results_df, events_ids_unique, energies=energies, energies_uncertainty=energies_uncertainty)
     else:
         print("\n[Energy NOT computed] => already in dataframe")
@@ -1164,8 +1168,8 @@ def main():
     # --- Compute grammage estimates ---
     if run_grammage or args.grammage:
         print('\n-------------- Starting Grammage Reconstruction --------------')
-        print("\nComputing grammage estimates from SWF results...")
-        grammages = grammage_reconsrtuction(SWF_res, verbose=verbose_bool)
+        print("\nComputing grammage estimates from SWF and ADF results...")
+        grammages = grammage_reconsrtuction(SWF_res, ADF_res, verbose=verbose_bool)
         results_df = add_df_columns(results_df, events_ids_unique, grammages=grammages)
     else:
         print("[Grammage NOT computed] => already in dataframe")
