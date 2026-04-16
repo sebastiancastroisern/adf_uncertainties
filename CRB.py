@@ -802,7 +802,7 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
     deg2rad      = np.pi / 180.0
     rad2deg      = 180.0 / np.pi
     cpt          = 0
-    cov_mats     = np.full((n_to_process, 8, 8), np.nan)
+    # cov_mats     = np.full((n_to_process, 8, 8), np.nan)
 
     for current_recons in tqdm(range(n_to_process), desc='ADF + SWF CRB computing...'):
         n_ants = nants[current_recons]
@@ -877,10 +877,10 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
                 print(f"Fisher matrix is singular for coinc {current_recons}.")
                 print(fisher_mat)
             stds[current_recons, :] = np.array([np.nan]*8)
-            cov_mat = np.full((8,8), np.nan)
+            # cov_mat = np.full((8,8), np.nan)
             cpt += 1
 
-        cov_mats[current_recons, :, :] = cov_mat
+        # cov_mats[current_recons, :, :] = cov_mat
 
     stds[:, 0] *= rad2deg  # std_alpha in degrees
     stds[:, 1] *= rad2deg  # std_beta in degrees
@@ -895,7 +895,7 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
         
     print(f"\n[{time.time()-t0:.3f}s] ADF + SWF CRB done for {n_to_process} coincidences with {cpt} singular matrices\n")
     
-    return stds, cov_mats
+    return stds#, cov_mats
 
 def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_res: np.ndarray, ADF_res: np.ndarray, n_max: int=None, verbose: bool=False) -> np.ndarray:
     """ Function calculating the Cramér-Rao Bound for the joint ADF + SWF reconstruction
@@ -916,7 +916,7 @@ def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_re
     deg2rad      = np.pi / 180.0
     rad2deg      = 180.0 / np.pi
     cpt          = 0
-    cov_mats     = np.full((n_to_process, 4, 4), np.nan)
+    # cov_mats     = np.full((n_to_process, 4, 4), np.nan)
 
     for current_recons in tqdm(range(n_to_process), desc='ADF only CRB computing...'):
         n_ants = nants[current_recons]
@@ -974,10 +974,10 @@ def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_re
                 print(f"Fisher matrix is singular for coinc {current_recons}.")
                 print(fisher_mat)
             stds[current_recons, :] = np.array([np.nan]*4)
-            cov_mat = np.full((8,8), np.nan)
+            # cov_mat = np.full((8,8), np.nan)
             cpt += 1
 
-        cov_mats[current_recons, :, :] = cov_mat
+        # cov_mats[current_recons, :, :] = cov_mat
 
     stds[:, 0] *= rad2deg  # std_alpha in degrees
     stds[:, 1] *= rad2deg  # std_beta in degrees
@@ -990,7 +990,7 @@ def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_re
         
     print(f"\n[{time.time()-t0:.3f}s] ADF only CRB done for {n_to_process} coincidences with {cpt} singular matrices")
     
-    return stds, cov_mats
+    return stds #, cov_mats
 
 def PWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, PWF_res: np.ndarray, file_path: str, n_max: int=None, verbose: bool=False):
     """ CRB for PWF recons """
@@ -1128,8 +1128,6 @@ def Xcore_recons(SWF_res: np.ndarray, ADF_res: np.ndarray) -> np.ndarray:
     Outputs:
         X_core: array of reconstructed core positions per coincidence in ENU coordinates (in meters)
     """
-
-    print(f"Size of SWF_res: {SWF_res.shape}, Size of ADF_res: {ADF_res.shape}")
     
     d2r = np.pi / 180.0 # Degrees to radians conversion factor
     k_vect   = np.array(build_K_vector(ADF_res[:,0]*d2r, ADF_res[:,1]*d2r).T) # theta and phi to have k vector
@@ -1160,7 +1158,7 @@ def main():
     file_path      = args.filepath
     data_file_path = os.path.join(file_path,'data_npy')
 
-    print(f"\n-------------- Looking for input files -----------------\n\nUsing data from: {file_path}")
+    print(f"\n-------------- Looking for input files -----------------\n\n")
     if not os.path.exists(os.path.join(data_file_path,'co_ncoincs.npy')) or args.all or args.build : 
         print("Preprocessing input data...")
         if args.old:
@@ -1171,15 +1169,15 @@ def main():
 
     print("Loading coincidence data...")
     # Load data from .npy files
-    nants, antenna_coords_array, peak_time_array_m, peak_time_array_s, peak_amp_array, ncoincs, events_ids_coords = lo.load_data_files_np(file_path)
-
-    event_ids_input_sims = np.loadtxt(os.path.join(file_path, "input_simus.txt"), usecols=0, dtype=int)
-
-    # assert np.isclose(event_ids_input_sims, events_ids_coords).all(), "Mismatch between event indices in input_simus.txt and loaded events_ids from .npy files. Please check the consistency of your data files."
+    loaded_data       = lo.load_data(data_file_path, ['ncoincs', 'events_ids'])
+    ncoincs           = loaded_data['ncoincs']
+    events_ids_coords = loaded_data['events_ids']
+    del loaded_data # Free memory
 
     # Limite du nombre d'événements à traiter
     n_to_process = min(ncoincs, n_max)
     events_ids_unique = events_ids_coords[:n_to_process]
+    del events_ids_coords # Free memory
 
     # Build results dataframe
     if not os.path.exists(os.path.join(file_path, 'results_dataframe.parquet')) or args.test or args.all or args.build:
@@ -1200,17 +1198,26 @@ def main():
     if 'recons_grammage' in results_df.columns : run_grammage = False
     if 'recons_energy'   in results_df.columns : run_energy   = False
 
-    if not os.path.exists(os.path.join(file_path, 'results_dataframe.parquet')) or (os.path.getmtime(os.path.join(file_path, 'results_dataframe.parquet')) - time.time()) > 21*24*3600: 
+    if not os.path.exists(os.path.join(file_path, 'results_dataframe.parquet')) or (time.time() - os.path.getmtime(os.path.join(file_path, 'results_dataframe.parquet'))) > 21*24*3600: 
         run_CRB = run_SWF = run_ADF = run_grammage = run_energy = True
     if args.all : run_SWF = run_ADF = run_CRB = run_grammage = run_energy = True # Force run of all steps if --all is specified
 
     print('-------------- Starting CRB Calculations --------------\n')
 
     # --- Compute PWF ---
+    loaded_data = lo.load_data(data_file_path, ['nants', 'antenna_coords_array', 'peak_time_array_m'])
+    nants       = loaded_data['nants']
+    antenna_coords_array = loaded_data['antenna_coords_array']
+    peak_time_array_m    = loaded_data['peak_time_array_m']
+    del loaded_data # Free memory
+
     PWF_res = PWF_recons(ncoincs, nants, antenna_coords_array, peak_time_array_m, n_max=n_to_process, verbose=verbose_bool)
     print("[PWF Computed]")
 
+    del peak_time_array_m # Free memory
+
     # --- Load or compute SWF ---
+    peak_time_array_s = lo.load_data(data_file_path, ['peak_time_array_s'])['peak_time_array_s']
     if run_SWF or args.swf:
         print("\nComputing SWF...")
         if multi_processing:
@@ -1225,9 +1232,11 @@ def main():
         SWF_res = results_df[['recons_alpha', 'recons_beta', 'recons_rxmax', 'recons_t0']].values
         print("[SWF loaded]")
 
+    del peak_time_array_s # Free memory
     results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet")) # Save intermediate results
 
     # --- Load or compute ADF ---
+    peak_amp_array = lo.load_data(data_file_path, ['peak_amp_array'])['peak_amp_array']
     if run_ADF or args.adf:
         print("\nComputing ADF...")
         if multi_processing:
@@ -1241,13 +1250,14 @@ def main():
         ADF_res = results_df[['recons_theta', 'recons_phi', 'recons_delta_omega', 'recons_amplitude']].values
         print("[ADF loaded]")
 
+    del peak_amp_array # Free memory
     results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet"))
 
     # --- Compute CRB ---
     if run_CRB or args.crb:
         print("\nComputing CRB for ADF + SWF...")
-        CRB_res, cov_mats = ADF_SWF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, n_max=n_to_process, verbose=verbose_bool)
-        CRB_ADF_only, cov_mats_ADF_only = ADF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, n_max=n_to_process, verbose=verbose_bool)
+        CRB_res = ADF_SWF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, n_max=n_to_process, verbose=verbose_bool)
+        CRB_ADF_only = ADF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, n_max=n_to_process, verbose=verbose_bool)
         results_df = add_df_columns(results_df, events_ids_unique, CRB_res=CRB_res, CRB_ADF_only=CRB_ADF_only)
     else: 
         print("[CRB loaded]")
@@ -1255,14 +1265,14 @@ def main():
 
     results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet"))
 
-    # --- Compute energy estimates ---
-    if run_energy or args.energy:
-        print('\n-------------- Starting Energy Reconstruction --------------')
-        print("\nComputing energy estimates from ADF results...")
-        energies, energies_uncertainty = recons_energy_all_crb(ncoincs, ADF_res, SWF_res, CRB_res, csv_file_path=pr.csv_coeff_corr, verbose=verbose_bool, n_max=n_to_process)
-        results_df = add_df_columns(results_df, events_ids_unique, energies=energies, energies_uncertainty=energies_uncertainty)
-    else:
-        print("\n[Energy NOT computed] => already in dataframe")
+    # # --- Compute energy estimates ---
+    # if run_energy or args.energy:
+    #     print('\n-------------- Starting Energy Reconstruction --------------')
+    #     print("\nComputing energy estimates from ADF results...")
+    #     energies, energies_uncertainty = recons_energy_all_crb(ncoincs, ADF_res, SWF_res, CRB_res, csv_file_path=pr.csv_coeff_corr, verbose=verbose_bool, n_max=n_to_process)
+    #     results_df = add_df_columns(results_df, events_ids_unique, energies=energies, energies_uncertainty=energies_uncertainty)
+    # else:
+    #     print("\n[Energy NOT computed] => already in dataframe")
 
     results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet"))
 
@@ -1278,7 +1288,6 @@ def main():
     results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet"))
 
     Xcores = Xcore_recons(SWF_res, ADF_res)
-    print(Xcores.shape)
     results_df = add_df_columns(results_df, events_ids_unique, xcore=Xcores)
 
     results_df = angular_error(results_df)
