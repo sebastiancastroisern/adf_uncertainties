@@ -25,8 +25,7 @@ h0 = 8_000.0  # m
 # Magnetic field
 # ======================
 
-# Values at the Xiaodushan Observatory, China
-
+# Values at the Xiaodushan Observatory, China (for the DC2 simulations)
 modulus = 56.482  # uT (microtesla)
 B_inc = np.deg2rad(61.6)  # degrés
 B_dec = np.deg2rad(0.1253)  # degrés
@@ -43,15 +42,6 @@ B_vec_norm = np.array([
 
 B_vec = B_vec_norm * modulus * 1e-6  # en T (tesla)
 
-# # # For the NJ simulation
-# B_dec = 0.
-# B_inc = np.pi/2. + 1.0609856522873529
-# # Magnetic field direction (unit) vector
-# Bvec = np.array([np.sin(B_inc)*np.cos(B_dec),np.sin(B_inc)*np.sin(B_dec),np.cos(B_inc)])
-
-# B_vec_norm = Bvec / np.linalg.norm(Bvec)
-# B_vec = B_vec_norm
-
 # ======================
 # Noise / detector
 # ======================
@@ -63,7 +53,7 @@ galactic_noise_floor = 8.0        # µV (aucune idée j'ai pas vérifié)
 assym_coeff = 0.01
 amplitude_uncertainty = 0.075  # relative uncertainty on amplitude measurement
 
-# for NJ
+# # for NJ
 # cr = 1.0
 # jitter_time = 1e-9                # s
 # galactic_noise_floor = 0.0        # µV (aucune idée j'ai pas vérifié)
@@ -91,7 +81,7 @@ bound_rxmax = [0.0, 1e6]
 bound_t0    = [-1e-2, 0.0]
 bound_theta = [0.0, np.pi]
 bound_phi   = [0.0, 2.0 * np.pi]
-bound_dw    = [0.1, 100.0]
+bound_dw    = [0.1, 25.0]
 bound_A     = [1e3, 1e12]
 
 bounds = np.array([
