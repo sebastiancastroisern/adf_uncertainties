@@ -1,9 +1,9 @@
 import wavefronts.params_config as pr
-import pandas as pd
 import jax.numpy as jnp
+import numpy as np
 
 
-def build_K_vector(theta, phi):
+def build_K_vector_jnp(theta, phi):
     """ Build K vector from zenith and azimuth angles in radians 
     Inputs:
         theta: float
@@ -38,7 +38,7 @@ def compute_Xsource(alpha: float, beta: float, rxmax: float) -> tuple:
             A tuple containing the Xsource position in cartesian coordinates (X, Y, Z) in meters
     """
 
-    K_source = -1 * build_K_vector(alpha, beta)
+    K_source = -1 * build_K_vector_jnp(alpha, beta)
 
     X_source = jnp.array([
         -rxmax * K_source[0],
@@ -47,3 +47,46 @@ def compute_Xsource(alpha: float, beta: float, rxmax: float) -> tuple:
     ])
 
     return jnp.array([X_source[0], X_source[1], X_source[2]])
+
+def build_Xsource_np(alpha_rad: float, beta_rad: float, r_xmax: float) -> np.ndarray:
+    """ Build the source position vector Xsource from spherical coordinates
+    Inputs:
+        alpha_rad: zenith angle in radians
+        beta_rad: azimuthal angle in radians
+        r_xmax: distance to the source in meters
+    Outputs:
+        Xsource: source position vector in meters
+    """
+    ca = np.cos(alpha_rad)
+    sa = np.sin(alpha_rad)
+    cb = np.cos(beta_rad)
+    sb = np.sin(beta_rad)
+
+    Xsource = np.array([
+        r_xmax * sa * cb,
+        r_xmax * sa * sb,
+        pr.groundAltitude + r_xmax * ca
+    ], dtype=np.float64)
+
+    return Xsource
+
+def build_K_vector_np(theta_rad: float, phi_rad: float) -> np.ndarray:
+    """ Build the shower direction vector K from spherical coordinates
+    Inputs:
+        theta_rad: zenith angle in radians
+        phi_rad: azimuthal angle in radians
+    Outputs:
+        K: shower direction vector
+    """
+    st = np.sin(theta_rad)
+    ct = np.cos(theta_rad)
+    sp = np.sin(phi_rad)
+    cp = np.cos(phi_rad)
+
+    K = np.array([
+        -st * cp,
+        -st * sp,
+        -ct
+    ], dtype=np.float64)
+
+    return K / np.linalg.norm(K)  # Ensure K is a unit vector

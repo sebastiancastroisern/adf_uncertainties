@@ -8,10 +8,11 @@ import numpy           as np
 import pandas          as pd
 import jax.numpy       as jnp
 import multiprocessing as mp
-import wavefronts.energy_jax          as ej
-import wavefronts.params_config       as pr
-import wavefronts.loader_txt          as lo
-import wavefronts.Gram_Recons         as gr
+import wavefronts.energy_jax    as ej
+import wavefronts.params_config as pr
+import wavefronts.loader_txt    as lo
+import wavefronts.Gram_Recons   as gr
+import wavefronts.compute_basic as cb
 from tqdm            import tqdm
 from typing          import Tuple
 from iminuit         import minimize
@@ -42,222 +43,6 @@ if not hasattr(np, 'infty'):
 
 
 # ======================= Miscellaneous ======================== #
-
-def npy_files_builder(file_path: str, data_filepath: str) -> None:
-    """ Construction des fichiers .npy à partir des fichiers texte d'entrée
-    Inputs:
-        file_path: path to the input data files
-        data_filepath: path to the data files (e.g., './test_NJ/')
-    Outputs:
-        Saves .npy files in the specified file_path 
-    """
-    print("Building .npy files from text data...")
-
-    if not os.path.exists(data_filepath): os.makedirs(data_filepath)
-    position_file = file_path + "/coord_antennas.txt"
-    coinc_file    = file_path + "/Rec_coinctable.txt"
-
-    # --- Antennes ---
-    event_idx_coord = np.loadtxt(position_file, usecols=0, dtype=int) # event index for each antenna entry
-    event_idx_coord = np.unique(event_idx_coord) # unique event indices for antenna entries
-    coords       = np.loadtxt(position_file, usecols=(1,2,3)) # coordinates of each antenna
-    du_ids_coord = np.loadtxt(position_file, usecols=4, dtype=int) # antenna IDs (DU IDs) for each entry
-
-    # --- Coïncidences ---
-    event_idx_coinc, t_s, amp, du_ids_coinc = np.loadtxt(
-        coinc_file, usecols=(0, 1, 2, 3), unpack=True
-    ) # peak times in seconds and amplitudes for each coincidence entry
-
-    event_idx_coinc = event_idx_coinc.astype(int) # event indices for each coincidence entry
-    du_ids_coinc = du_ids_coinc.astype(int) # antenna IDs (DU IDs) for each coincidence entry
-    t_m = t_s * pr.c_light
-
-    events_ids = np.unique(event_idx_coinc)
-    print(len(events_ids), "unique events in coincidence data.")
-    
-    good_events = [u for u in events_ids if np.sum(event_idx_coinc==u) >= 2] # events with at least 2 antennas in coincidence
-    nco = len(good_events)
-
-    nants = np.array([np.sum(event_idx_coinc==u) for u in good_events], dtype=int)  # number of antennas in coincidence for each good event
-    nmax_ants = int(nants.max()) # maximum number of antennas in coincidence across all good events
-
-    co_ant_idx = np.zeros((nco, nmax_ants),    dtype=int) # antenna indices for each coincidence, initialized to zero
-    co_ant_coo = np.zeros((nco, nmax_ants, 3), dtype=np.float64) # antenna coordinates for each coincidence, initialized to zero
-    co_evt_idx = np.zeros((nco, nmax_ants),    dtype=int) # event indices for each antenna in each coincidence, initialized to zero
-    co_pti_met = np.zeros((nco, nmax_ants),    dtype=np.float64) # peak times in meters for each antenna in each coincidence, initialized to zero
-    co_pti_sec = np.zeros((nco, nmax_ants),    dtype=np.float64) # peak times in seconds for each antenna in each coincidence, initialized to zero
-    co_pea_amp = np.zeros((nco, nmax_ants),    dtype=np.float64) # peak amplitudes for each antenna in each coincidence, initialized to zero
-
-    du_to_coord_idx = {}
-    for i, du in enumerate(du_ids_coord):
-        if du not in du_to_coord_idx:
-            du_to_coord_idx[du] = i
-
-    for k, u in enumerate(good_events):
-        mask = (event_idx_coinc == u)
-        n_ants = int(nants[k])
-
-        du_event = du_ids_coinc[mask]
-
-        # indices de ligne dans coords pour ces DU_id
-        coord_indices = np.array([du_to_coord_idx[du] for du in du_event], dtype=int)
-
-        co_ant_idx[k, :n_ants] = coord_indices
-        co_ant_coo[k, :n_ants] = coords[coord_indices]
-        co_evt_idx[k, :n_ants]  = u
-        co_pti_met[k, :n_ants] = t_m[mask] - t_m[mask].min()
-        co_pti_sec[k, :n_ants] = t_s[mask]
-        co_pea_amp[k, :n_ants] = amp[mask]
-
-    # --- Sauvegardes ---
-    np.save(data_filepath + "/an_event_indices.npy", event_idx_coord)
-    np.save(data_filepath + "/an_coordinates.npy", coords)
-    np.save(data_filepath + "/an_du_ids.npy", du_ids_coord)
-    np.save(data_filepath + "/an_nants.npy", len(coords))
-
-    np.save(data_filepath + "/co_ncoincs.npy", np.array([nco], dtype=float))
-    np.save(data_filepath + "/co_nants.npy", nants)
-    np.save(data_filepath + "/co_nantsmax.npy", nmax_ants)
-    np.save(data_filepath + "/co_antenna_index_array.npy", co_ant_idx)
-    np.save(data_filepath + "/co_antenna_coords_array.npy", co_ant_coo)
-    np.save(data_filepath + "/co_coinc_index_array.npy", co_evt_idx)
-    np.save(data_filepath + "/co_peak_time_array.npy", co_pti_met)
-    np.save(data_filepath + "/co_peak_time_array_in_s.npy", co_pti_sec)
-    np.save(data_filepath + "/co_peak_amp_array.npy", co_pea_amp)
-
-def old_npy_files_builder(file_path: str, data_filepath: str) -> None:
-    """ Construction des fichiers .npy à partir des fichiers texte d'entrée
-    Inputs:
-        file_path: path to the input data files
-        data_filepath: path to the data files (e.g., './test_NJ/')
-    Outputs:
-        Saves .npy files in the specified file_path 
-    """
-    print("Building .npy files from text data...")
-
-    if not os.path.exists(data_filepath): os.makedirs(data_filepath)
-    position_file = file_path + "/coord_antennas.txt"
-    coinc_file    = file_path + "/Rec_coinctable.txt"
-
-    # --- Antennes ---
-    idx = np.loadtxt(position_file, usecols=0, dtype=int)
-    coords = np.loadtxt(position_file, usecols=(1,2,3))
-    init = idx.min()
-
-    # --- Coïncidences ---
-    a_i, c_i = np.loadtxt(coinc_file, usecols=(0,1), dtype=int).T
-    t_s, amp = np.loadtxt(coinc_file, usecols=(2,3)).T
-    t = t_s * pr.c_light
-
-    uniq = np.unique(c_i)
-    good = [u for u in uniq if np.sum(c_i==u) >= 2]
-    nco = len(good)
-
-    nants = np.array([np.sum(c_i==u) for u in good], dtype=int)  # Changé de float64 à int
-    nmax = int(nants.max())
-
-    co_ai  = np.zeros((nco, nmax), dtype=int)
-    co_ac  = np.zeros((nco, nmax, 3), dtype=np.float64)
-    co_ci  = np.zeros((nco, nmax), dtype=int)
-    co_pt  = np.zeros((nco, nmax), dtype=np.float64)
-    co_pts = np.zeros((nco, nmax), dtype=np.float64)
-    co_pa  = np.zeros((nco, nmax), dtype=np.float64)
-
-    for k, u in enumerate(good):
-        m = (c_i == u)
-        n = int(nants[k])  # Conversion explicite en int pour l'indexation
-        co_ai[k, :n]  = a_i[m] - init
-        co_ac[k, :n]  = coords[a_i[m] - init]  # Correction: utiliser l'index relatif
-        co_ci[k, :n]  = c_i[m]
-        co_pt[k, :n]  = t[m] - t[m].min()
-        co_pts[k, :n] = t_s[m]
-        co_pa[k, :n]  = amp[m]
-
-    # --- Sauvegardes ---
-    np.save(data_filepath+"/an_event_indices.npy",idx)
-    np.save(data_filepath+"/an_coordinates.npy",coords)
-    np.save(data_filepath+"/an_du_ids.npy",init)
-    np.save(data_filepath+"/an_nants.npy",len(idx))
-
-    np.save(data_filepath+"/co_ncoincs.npy", np.array([nco], dtype=np.float64))
-    np.save(data_filepath+"/co_nants.npy",nants)
-    np.save(data_filepath+"/co_nantsmax.npy",nmax)
-    np.save(data_filepath+"/co_antenna_index_array.npy",co_ai)
-    np.save(data_filepath+"/co_antenna_coords_array.npy",co_ac)
-    np.save(data_filepath+"/co_coinc_index_array.npy",co_ci)
-    np.save(data_filepath+"/co_peak_time_array.npy",co_pt) # in m
-    np.save(data_filepath+"/co_peak_time_array_in_s.npy",co_pts) # in s
-    np.save(data_filepath+"/co_peak_amp_array.npy",co_pa)
-    pass
-
-def build_Xsource(alpha_rad: float, beta_rad: float, r_xmax: float) -> np.ndarray:
-    """ Build the source position vector Xsource from spherical coordinates
-    Inputs:
-        alpha_rad: zenith angle in radians
-        beta_rad: azimuthal angle in radians
-        r_xmax: distance to the source in meters
-    Outputs:
-        Xsource: source position vector in meters
-    """
-    ca = np.cos(alpha_rad)
-    sa = np.sin(alpha_rad)
-    cb = np.cos(beta_rad)
-    sb = np.sin(beta_rad)
-
-    Xsource = np.array([
-        r_xmax * sa * cb,
-        r_xmax * sa * sb,
-        pr.groundAltitude + r_xmax * ca
-    ], dtype=np.float64)
-
-    return Xsource
-
-def build_K_vector(theta_rad: float, phi_rad: float) -> np.ndarray:
-    """ Build the shower direction vector K from spherical coordinates
-    Inputs:
-        theta_rad: zenith angle in radians
-        phi_rad: azimuthal angle in radians
-    Outputs:
-        K: shower direction vector
-    """
-    st = np.sin(theta_rad)
-    ct = np.cos(theta_rad)
-    sp = np.sin(phi_rad)
-    cp = np.cos(phi_rad)
-
-    K = np.array([
-        -st * cp,
-        -st * sp,
-        -ct
-    ], dtype=np.float64)
-
-    return K / np.linalg.norm(K)  # Ensure K is a unit vector
-
-def build_result_dataframe(file_path: str= args.filepath, nmax: int=None, old: bool= args.old) -> pd.DataFrame:
-    """ Build a pandas DataFrame from the reconstruction results and CRB computations
-    Inputs:
-        PWF_res: array containing PWF reconstruction results
-        SWF_res: array containing SWF reconstruction results
-        ADF_res: array containing ADF reconstruction results
-        CRB_res: array containing CRB results
-        cov_mats: array containing Fisher information matrices
-    Outputs:        
-        df: pandas DataFrame containing all results
-    """
-
-    if old:
-        df_temp = pd.read_csv(os.path.join(file_path, "input_simus.txt"), comment="#", sep=r'\s+', header=None, usecols=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], 
-                        names=['event_idx', 'true_theta', 'true_phi', 'Primary_energy', 'Em_energy', 'Nature_primary', 'XmaxDistance', 'gramage', 'x_Xmax', 'y_Xmax', 'z_Xmax', 'Number_triggered_antennas'])
-    else:
-        df_temp = pd.read_csv(os.path.join(file_path, "input_simus.txt"), comment="#", sep=r'\s+', header=None, usecols=[0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 15], 
-                        names=['event_idx', 'true_theta', 'true_phi', 'Primary_energy', 'Nature_primary', 'XmaxDistance', 'gramage', 'x_Xmax', 'y_Xmax', 'z_Xmax', 'Number_triggered_antennas'])
-    
-    if nmax is not None:
-        df_temp = df_temp.iloc[:nmax]
-
-    print(f"DataFrame built with {len(df_temp)} events from {file_path}/input_simus.txt")
-
-    return df_temp
 
 def add_df_columns(df: pd.DataFrame, events_ids: np.ndarray, SWF_res: np.ndarray=None, SWF_loss: np.ndarray=None, ADF_res: np.ndarray=None, ADF_loss: np.ndarray=None, CRB_res: np.ndarray=None, CRB_ADF_only: np.ndarray=None, energies: np.ndarray=None, energies_uncertainty: np.ndarray=None, grammages: np.ndarray=None, xcore: np.ndarray=None) -> pd.DataFrame:
     """ Add columns to the DataFrame with reconstruction results
@@ -567,7 +352,7 @@ def ADF_single_recon(i: int, theta_PWF_rad: float, phi_PWF_rad: float, rx_max: f
     
     try:
         # Xmax position
-        Xmax = build_Xsource(alpha_rad, beta_rad, rx_max)
+        Xmax = cb.build_Xsource_np(alpha_rad, beta_rad, rx_max)
 
         # Bounds and initial guess
         angle_pm = 3*d2r
@@ -818,7 +603,7 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
         adf_rad[0] *= deg2rad
         adf_rad[1] *= deg2rad
 
-        Xsource = build_Xsource(swf_rad[0], swf_rad[1], swf_rad[2])
+        Xsource = cb.build_Xsource_np(swf_rad[0], swf_rad[1], swf_rad[2])
         
         params = np.hstack((swf_rad, adf_rad))
         fisher_mat = np.zeros((8,8))
@@ -842,8 +627,8 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
 
             # Reconstruction of Xmax for perturbed SWF parameters
             # Plus
-            X_max_plus = build_Xsource(swf_params_plus[0], swf_params_plus[1], swf_params_plus[2])
-            X_max_minus = build_Xsource(swf_params_minus[0], swf_params_minus[1], swf_params_minus[2])
+            X_max_plus = cb.build_Xsource_np(swf_params_plus[0], swf_params_plus[1], swf_params_plus[2])
+            X_max_minus = cb.build_Xsource_np(swf_params_minus[0], swf_params_minus[1], swf_params_minus[2])
             
             pred_plus_ampl  = ADF_3D_model(adf_params_plus, ant_coords, X_max_plus) # in mV
             pred_plus_time  = SWF_model(swf_params_plus, ant_coords) # in s
@@ -932,7 +717,7 @@ def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_re
         adf_rad[0] *= deg2rad
         adf_rad[1] *= deg2rad
 
-        Xsource = build_Xsource(swf_rad[0], swf_rad[1], swf_rad[2])
+        Xsource = cb.build_Xsource_np(swf_rad[0], swf_rad[1], swf_rad[2])
         
         fisher_mat = np.zeros((4,4))
 
@@ -1130,8 +915,8 @@ def Xcore_recons(SWF_res: np.ndarray, ADF_res: np.ndarray) -> np.ndarray:
     """
     
     d2r = np.pi / 180.0 # Degrees to radians conversion factor
-    k_vect   = np.array(build_K_vector(ADF_res[:,0]*d2r, ADF_res[:,1]*d2r).T) # theta and phi to have k vector
-    Xsource  = np.array(build_Xsource(SWF_res[:,0]*d2r, SWF_res[:,1]*d2r, SWF_res[:,2]).T) # Build Xsource from SWF results (alpha, beta, rxmax)
+    k_vect   = np.array(cb.build_K_vector_np(ADF_res[:,0]*d2r, ADF_res[:,1]*d2r).T) # theta and phi to have k vector
+    Xsource  = np.array(cb.build_Xsource_np(SWF_res[:,0]*d2r, SWF_res[:,1]*d2r, SWF_res[:,2]).T) # Build Xsource from SWF results (alpha, beta, rxmax)
     prop_factor = np.array(pr.groundAltitude - Xsource[:,2]) / (k_vect[:,2]) # proportionnality factor to get from Xsource to Xcore (intersection with ground plane at pr.groundAltitude)
 
     X_core = Xsource + k_vect * prop_factor[:, np.newaxis] 
@@ -1162,9 +947,9 @@ def main():
     if not os.path.exists(os.path.join(data_file_path,'co_ncoincs.npy')) or args.all or args.build : 
         print("Preprocessing input data...")
         if args.old:
-            old_npy_files_builder(file_path, data_file_path)
+            lo.old_npy_files_builder(file_path, data_file_path)
         else:
-            npy_files_builder(file_path, data_file_path)
+            lo.npy_files_builder(file_path, data_file_path)
         print("Input data preprocessing done.")
 
     print("Loading coincidence data...")
@@ -1181,7 +966,7 @@ def main():
 
     # Build results dataframe
     if not os.path.exists(os.path.join(file_path, 'results_dataframe.parquet')) or args.test or args.all or args.build:
-        results_df = build_result_dataframe(file_path=file_path, nmax = n_to_process)
+        results_df = lo.build_result_dataframe(file_path=file_path, nmax=n_to_process, old=args.old)
     else:
         results_df = pd.read_parquet(os.path.join(file_path, 'results_dataframe.parquet'))
 
