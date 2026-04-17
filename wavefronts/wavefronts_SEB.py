@@ -587,7 +587,7 @@ def ADF_3D_parameters(params: np.ndarray, Aants: np.ndarray, Xants: np.ndarray, 
 
     # Define shower basis vectors
     K = np.array([-st*cp,-st*sp,-ct], dtype=np.float64)
-    KxB = np.cross(K,Bvec); KxB /= np.linalg.norm(KxB)
+    KxB = np.cross(K,B_vec); KxB /= np.linalg.norm(KxB)
     KxKxB = np.cross(K,KxB); KxKxB /= np.linalg.norm(KxKxB)
    
     # Coordinate transform matrix
@@ -599,7 +599,7 @@ def ADF_3D_parameters(params: np.ndarray, Aants: np.ndarray, Xants: np.ndarray, 
 
     # Calcul de f_geom
     asym_coeff = -0.003*theta_deg+0.220 # Calcul de G_A
-    asym = asym_coeff/np.sqrt(1. - np.dot(K,Bvec)**2) # Calcul de G_A/sin(alpha) où alpha = |KxB|
+    asym = asym_coeff/np.sqrt(1. - np.dot(K,B_vec)**2) # Calcul de G_A/sin(alpha) où alpha = |KxB|
 
 
     # Boucle sur les antennes — pas de table de pré-calcul possible pour l’angle de Tcherenkov
