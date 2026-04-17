@@ -553,7 +553,7 @@ def SWF_simulation(params: np.ndarray, Xants: np.ndarray, iseed=1234) -> np.ndar
 # ------------------------ ADF functions ------------------------
 
 @njit(**kwd)
-def ADF_3D_parameters(params: np.ndarray, Aants: np.ndarray, Xants: np.ndarray, Xmax: np.ndarray):
+def ADF_3D_parameters(params: np.ndarray, Aants: np.ndarray, Xants: np.ndarray, Xmax: np.ndarray, B_vec: np.ndarray=pr.B_vec_norm) -> np.ndarray:
     
     r'''
 
@@ -583,7 +583,6 @@ def ADF_3D_parameters(params: np.ndarray, Aants: np.ndarray, Xants: np.ndarray, 
     # Basic parameters
     theta, phi, delta_omega, amplitude = params
     nants = Xants.shape[0]
-    Bvec = pr.B_vec
     ct = np.cos(theta); st = np.sin(theta); cp = np.cos(phi); sp = np.sin(phi)
 
     # Define shower basis vectors
@@ -657,7 +656,7 @@ def ADF_3D_parameters(params: np.ndarray, Aants: np.ndarray, Xants: np.ndarray, 
     )
 
 @njit(**kwd)
-def ADF_loss(params: np.ndarray, Aants: np.ndarray, Xants: np.ndarray, Xmax: np.ndarray, ndof: bool=False):
+def ADF_loss(params: np.ndarray, Aants: np.ndarray, Xants: np.ndarray, Xmax: np.ndarray, ndof: bool=False, B_vec: np.ndarray=pr.B_vec_norm) -> float:
     '''Compute chi2 between measured amplitudes and 3D ADF model. Cleaned version
     
     Inputs
@@ -686,12 +685,11 @@ def ADF_loss(params: np.ndarray, Aants: np.ndarray, Xants: np.ndarray, Xmax: np.
     # Basic parameters
     theta, phi, delta_omega, amplitude = params
     nants = Xants.shape[0]
-    Bvec = pr.B_vec
     ct = np.cos(theta); st = np.sin(theta); cp = np.cos(phi); sp = np.sin(phi)
 
     # Define shower basis vectors
     K = np.array([-st*cp,-st*sp,-ct], dtype=np.float64)
-    KxB = np.cross(K,Bvec); KxB /= np.linalg.norm(KxB)
+    KxB = np.cross(K,B_vec); KxB /= np.linalg.norm(KxB)
     KxKxB = np.cross(K,KxB); KxKxB /= np.linalg.norm(KxKxB)
    
     # Coordinate transform matrix
@@ -703,7 +701,7 @@ def ADF_loss(params: np.ndarray, Aants: np.ndarray, Xants: np.ndarray, Xmax: np.
 
     # Calculation of f_geom
     asym_coeff = -0.003*theta_deg+0.220 # Calcul de G_A
-    asym = asym_coeff/np.sqrt(1. - np.dot(K,Bvec)**2) # Calcul de G_A/sin(alpha) où alpha = |KxB|
+    asym = asym_coeff/np.sqrt(1. - np.dot(K,B_vec)**2) # Calcul de G_A/sin(alpha) où alpha = |KxB|
 
     # Loop on antennas. Here no precomputation table is possible for Cerenkov angle computation.
     # Calculation needs to be done for each antenna.
@@ -737,7 +735,7 @@ def ADF_loss(params: np.ndarray, Aants: np.ndarray, Xants: np.ndarray, Xmax: np.
         return chi2
 
 @njit(**kwd) #{"fastmath": {"reassoc", "contract", "arcp"}}
-def ADF_3D_model(params: np.ndarray, Xants: np.ndarray, Xmax: np.ndarray) -> np.ndarray:
+def ADF_3D_model(params: np.ndarray, Xants: np.ndarray, Xmax: np.ndarray, B_vec: np.ndarray=pr.B_vec) -> np.ndarray:
     
     '''
     Calculate radio signal received by each antenna from an atmospheric shower.
@@ -777,9 +775,8 @@ def ADF_3D_model(params: np.ndarray, Xants: np.ndarray, Xmax: np.ndarray) -> np.
 
     # --- Define shower axis and orthogonal basis ---
     K = np.array([-st * cp, -st * sp, -ct], dtype=np.float64)
-    Bvec = pr.B_vec
     # Build orthonormal frame (KxB, KxKxB, K)
-    KxB = np.cross(K, Bvec)
+    KxB = np.cross(K, B_vec)
     KxB /= np.linalg.norm(KxB)
     KxKxB = np.cross(K, KxB)
     KxKxB /= np.linalg.norm(KxKxB)
@@ -789,7 +786,7 @@ def ADF_3D_model(params: np.ndarray, Xants: np.ndarray, Xmax: np.ndarray) -> np.
     XmaxDist = np.linalg.norm(np.array([0, 0, pr.groundAltitude], dtype=np.float64) - Xmax) 
     theta_deg = np.degrees(theta)
     # Empirical asymmetry term (depends on geomagnetic angle)
-    asym = (-0.003 * theta_deg + 0.220) / np.sqrt(1. - np.dot(K, Bvec)**2)
+    asym = (-0.003 * theta_deg + 0.220) / np.sqrt(1. - np.dot(K, B_vec)**2)
 
     # --- Loop over antennas ---
     res = np.empty(len(Xants))
@@ -987,23 +984,22 @@ def compute_Cerenkov_3D_2(Xant: np.ndarray, K: np.ndarray, XmaxDist: float, Xmax
     return omega_cr
 
 @njit(**kwd)
-def ADF_grad(params: np.ndarray, Aants: np.ndarray, Xants: np.ndarray, Xmax: np.ndarray) -> np.ndarray:
+def ADF_grad(params: np.ndarray, Aants: np.ndarray, Xants: np.ndarray, Xmax: np.ndarray, B_vec: np.ndarray=pr.B_vec) -> np.ndarray:
     
     theta, phi, delta_omega, amplitude = params
     nants = Aants.shape[0]
-    Bvec = pr.B_vec
     ct = np.cos(theta); st = np.sin(theta); cp = np.cos(phi); sp = np.sin(phi)
     # Define shower basis vectors
     K = np.array([-st*cp,-st*sp,-ct], dtype=np.float64)
     K_plan = np.array([K[0],K[1]], dtype=np.float64)
-    KxB = np.cross(K,Bvec); KxB /= np.linalg.norm(KxB)
+    KxB = np.cross(K,B_vec); KxB /= np.linalg.norm(KxB)
     KxKxB = np.cross(K,KxB); KxKxB /= np.linalg.norm(KxKxB)
     # Coordinate transform matrix
     mat = np.vstack((KxB,KxKxB,K))
     # 
     XmaxDist = (pr.groundAltitude-Xmax[2])/K[2]
     # print('XmaxDist = ',XmaxDist)
-    asym = pr.assym_coeff * (1. - np.dot(K,Bvec)**2) # Azimuthal dependence, in \sin^2(\alpha)
+    asym = pr.assym_coeff * (1. - np.dot(K,B_vec)**2) # Azimuthal dependence, in \sin^2(\alpha)
     #
     # Make sure Xants and tants are compatible
     if (Xants.shape[0] != nants):
@@ -1041,11 +1037,11 @@ def ADF_grad(params: np.ndarray, Aants: np.ndarray, Xants: np.ndarray, Xmax: np.
         res = Aants[i] - adf
         #
         dK_dtheta = np.array([ct*cp, ct*sp,-st], dtype=np.float64)
-        dfgeom_dtheta = -2.*pr.asym_coeff*np.cos(eta)*(np.dot(K,Bvec))*(np.dot(dK_dtheta,Bvec))
+        dfgeom_dtheta = -2.*pr.asym_coeff*np.cos(eta)*(np.dot(K,B_vec))*(np.dot(dK_dtheta,B_vec))
         dres_dtheta = (-amplitude/l_ant)*f_cerenkov*dfgeom_dtheta
         #
         dK_dphi = np.array([-st*sp, st*cp, 0.], dtype=np.float64)
-        dfgeom_dphi = -2.*pr.asym_coeff*np.cos(eta)*(np.dot(K,Bvec))*(np.dot(dK_dphi,Bvec))
+        dfgeom_dphi = -2.*pr.asym_coeff*np.cos(eta)*(np.dot(K,B_vec))*(np.dot(dK_dphi,B_vec))
         dres_dphi = (-amplitude/l_ant)*f_cerenkov*dfgeom_dphi
         #
         term1 = (np.tan(omega)/np.tan(omega_cr))**2 - 1. 

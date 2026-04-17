@@ -90,3 +90,33 @@ def build_K_vector_np(theta_rad: float, phi_rad: float) -> np.ndarray:
     ], dtype=np.float64)
 
     return K / np.linalg.norm(K)  # Ensure K is a unit vector
+
+def compute_B_vec(inc, dec, mod=1.0):
+    """
+    Compute the magnetic field vector(s) B in the local coordinate system.
+    Inputs:
+        inc: float or np.ndarray
+            Inclination angle(s) in degrees
+        dec: float or np.ndarray
+            Declination angle(s) in degrees
+        mod: float or np.ndarray, optional
+            Modulus of the magnetic field in microtesla (default is 1.0, which means no scaling)
+    Outputs:        
+        np.ndarray
+            Magnetic field vector(s) in the local coordinate system, with shape (..., 3) where the last dimension corresponds to the (Bx, By, Bz) components in tesla
+    """
+    inc = np.asarray(inc, dtype=np.float64)
+    dec = np.asarray(dec, dtype=np.float64)
+    mod = np.asarray(mod, dtype=np.float64)
+
+    mod_T = np.where(mod == 1.0, mod, mod * 1e-6)
+
+    inc_rad = np.deg2rad(inc)
+    dec_rad = np.deg2rad(dec)
+
+    Bx = mod_T * np.cos(inc_rad) * np.cos(dec_rad)
+    By = mod_T * np.cos(inc_rad) * np.sin(dec_rad)
+    Bz = mod_T * np.sin(inc_rad)
+
+    return np.stack([Bx, By, Bz], axis=-1)
+
