@@ -476,101 +476,6 @@ def ADF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndar
 
 
 
-# ======================= Energy reconstruction ======================= #
-
-def recons_energy_all_cov(ncoincs: int, ADF_deg: np.ndarray, SWF_deg: np.ndarray, cov_mats: np.ndarray, csv_file_path: str=pr.csv_coeff_corr, verbose: bool=False, n_max: int=None) -> np.ndarray:
-    """ Function reconstructing the energy for all coincidences
-    Inputs:
-        ncoincs: number of coincidences
-        ADF_res: dictionary containing ADF reconstruction results (in degrees)
-        SWF_res: dictionary containing SWF reconstruction results (in degrees)
-        n_max: maximum number of coincidences to process
-        verbose: boolean for verbosity
-        csv_file_path: path to the CSV file containing the correction coefficients
-    Outputs:
-        energies: array of reconstructed energies per coincidence in eV
-        energies_uncertainty: array of uncertainties of reconstructed energies per coincidence in eV """
-    
-    if n_max is not None:
-        ncoincs = min(ncoincs, n_max)
-
-    deg2rad = np.pi / 180.0
-    ADF_rad, SWF_rad = ADF_deg.copy(), SWF_deg.copy()
-    ADF_rad[:,:2] *= deg2rad
-    SWF_rad[:,:2] *= deg2rad
-    params_rad = np.hstack((SWF_rad, ADF_rad)) # shape (ncoincs, 8)
-    params_rad = jnp.array(params_rad)
-    cov_mats   = jnp.array(cov_mats)
-
-    df_coeffs = pd.read_csv(csv_file_path)
-    df_coeffs = df_coeffs[df_coeffs['value'] != 0.0]
-    jpn_coeffs = jnp.array(df_coeffs['value'].values)
-
-    energies = np.zeros(ncoincs)
-    energies_uncertainty = np.zeros(ncoincs)
-
-    for i in tqdm(range(ncoincs), desc='Energy reconstruction...'):
-        SWF_ADF_rad = params_rad[i]
-        cov_mat     = cov_mats[i]
-        energies[i], energies_uncertainty[i] = jax.jit(ej.jax_energy_and_uncertainty)(SWF_ADF_rad, cov_mat, jpn_coeffs)
-        if verbose:
-            print(f"Coincidence {i}: Energy = {energies[i]:.3e} EeV ± {energies_uncertainty[i]:.3e} EeV")
-
-    return energies, energies_uncertainty
-
-def recons_energy_all_crb(ncoincs: int, ADF_deg: np.ndarray, SWF_deg: np.ndarray, CRB_res: np.ndarray, csv_file_path: str=pr.csv_coeff_corr, verbose: bool=False, n_max: int=None) -> np.ndarray:
-    """ Function reconstructing the energy for all coincidences
-    Inputs:
-        ncoincs: number of coincidences
-        ADF_res: dictionary containing ADF reconstruction results (in degrees)
-        SWF_res: dictionary containing SWF reconstruction results (in degrees)
-        n_max: maximum number of coincidences to process
-        verbose: boolean for verbosity
-        csv_file_path: path to the CSV file containing the correction coefficients
-    Outputs:
-        energies: array of reconstructed energies per coincidence in eV
-        energies_uncertainty: array of uncertainties of reconstructed energies per coincidence in eV
-         uncertainties are first order approximations using the CRB as input covariance matrices for the parameters """
-    
-    t0 = time.time()
-    
-    if n_max is not None:
-        ncoincs = min(ncoincs, n_max)
-
-    deg2rad = np.pi / 180.0
-    ADF_rad, SWF_rad, CRB_rad = ADF_deg.copy(), SWF_deg.copy(), CRB_res.copy()
-    ADF_rad[:, :2] *= deg2rad
-    SWF_rad[:, :2] *= deg2rad
-    CRB_rad[:, :2] *= deg2rad
-    CRB_rad[:,4:6] *= deg2rad
-    params_rad = np.hstack((SWF_rad, ADF_rad)) # shape (ncoincs, 8)
-    params_rad = jnp.array(params_rad)
-    cov_mats = []
-    for i in range(ncoincs):
-        cov_mats.append(np.diag(CRB_rad[i]**2))
-    cov_mats   = jnp.array(cov_mats)
-
-    df_coeffs = pd.read_csv(csv_file_path)
-    df_coeffs = df_coeffs[df_coeffs['value'] != 0.0]
-    jpn_coeffs = jnp.array(df_coeffs['value'].values)
-
-    energies = np.zeros(ncoincs)
-    energies_uncertainty = np.zeros(ncoincs)
-
-    for i in tqdm(range(ncoincs), desc='Energy reconstruction...'):
-        SWF_ADF_rad = params_rad[i]
-        cov_mat     = cov_mats[i]
-        energies[i], energies_uncertainty[i] = ej.jax_energy_and_uncertainty_jit(SWF_ADF_rad, cov_mat, jpn_coeffs)
-        if verbose:
-            print(f"Coincidence {i}: Energy = {energies[i]:.3e} EeV ± {energies_uncertainty[i]:.3e} EeV")
-
-    print(f"\n[{time.time()-t0:.3f}s] Energy reconstruction done for {ncoincs} coincidences")
-    print(f"Percentages of negative energies: {(energies < 0).sum() / ncoincs * 100:.2f}%")
-
-    return energies, energies_uncertainty
-
-
-
 # ======================= CRB of ADF + SWF ======================= #
 
 def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_res: np.ndarray, ADF_res: np.ndarray, B_vecs: np.ndarray, n_max: int=None, verbose: bool=False) -> np.ndarray:
@@ -1064,15 +969,6 @@ def main():
         CRB_res = results_df[['stds_alpha', 'stds_beta', 'stds_rxmax', 'stds_t0', 'stds_theta', 'stds_phi', 'stds_delta_omega', 'stds_amplitude']].values
 
     results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet"))
-
-    # # --- Compute energy estimates ---
-    # if run_energy or args.energy:
-    #     print('\n-------------- Starting Energy Reconstruction --------------')
-    #     print("\nComputing energy estimates from ADF results...")
-    #     energies, energies_uncertainty = recons_energy_all_crb(ncoincs, ADF_res, SWF_res, CRB_res, csv_file_path=pr.csv_coeff_corr, verbose=verbose_bool, n_max=n_to_process)
-    #     results_df = add_df_columns(results_df, events_ids_unique, energies=energies, energies_uncertainty=energies_uncertainty)
-    # else:
-    #     print("\n[Energy NOT computed] => already in dataframe")
 
     results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet"))
 

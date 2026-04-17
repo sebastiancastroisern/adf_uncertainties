@@ -128,13 +128,15 @@ def jax_altitude(SWF_rad: jnp.array):
 
     return jnp.sqrt(R2 + (X_source[2] + pr.R_earth)**2) - pr.R_earth
 
-def jax_energy_recons(recons_rad: jnp.array, jnp_coeffs: jnp.array) -> float:
+def jax_energy_recons(recons_rad: jnp.array, jnp_coeffs: jnp.array, B_vec: jnp.array=pr.B_vec_norm) -> float:
     """ Reconstruct energy from radio wavefront parameters in radians
     Inputs:
         recons_rad: jnp.array
             Array of reconstructed parameters [theta, phi, R_source, t_s, ADF parameters] in radians, meters and seconds
         jnp_coeffs: jnp.array
             Array of linear regression coefficients
+        B_vec: jnp.array
+            Normalized geomagnetic field vector
     Outputs:
         energy: float
             Reconstructed energy in eV"""
@@ -145,7 +147,7 @@ def jax_energy_recons(recons_rad: jnp.array, jnp_coeffs: jnp.array) -> float:
     Xsource_alt = jax_altitude(SWF)
     rho_Xsource_kg_m3 = density_jax(Xsource_alt * 1e2) * 1e3  # convert g/cm^3 to kg/m^3
 
-    sinalpha = jax_sin_alpha(ADF[0], ADF[1]) # radians
+    sinalpha = jax_sin_alpha(ADF[0], ADF[1], B_vec) # radians
 
     features = jax_poly_features_3(sinalpha, rho_Xsource_kg_m3)
 
@@ -157,38 +159,38 @@ def jax_energy_recons(recons_rad: jnp.array, jnp_coeffs: jnp.array) -> float:
 
 jax_energy_recons_jit = jax.jit(jax_energy_recons)
 
-def jax_energy_and_uncertainty(recons_rad: jnp.array, cov_mat: jnp.array, jnp_coeffs: jnp.array) -> jnp.array:
-    """
-    Computes the energy reconstruction and its uncertainty using the JAX framework.
-    Inputs:
-        recons_rad: jnp.array
-            Array of reconstructed parameters [theta, phi, R_source, t_s, ADF parameters] in radians, meters and seconds
-        cov_mat: jnp.array
-            Covariance matrix of the reconstructed parameters
-        jnp_coeffs: jnp.array
-            Array of linear regression coefficients
-    Outputs:
-        energy_and_uncertainty: jnp.array
-            Array containing the reconstructed energy and its uncertainty [energy, uncertainty]
-    """
+# def jax_energy_and_uncertainty(recons_rad: jnp.array, cov_mat: jnp.array, jnp_coeffs: jnp.array) -> jnp.array:
+#     """
+#     Computes the energy reconstruction and its uncertainty using the JAX framework.
+#     Inputs:
+#         recons_rad: jnp.array
+#             Array of reconstructed parameters [theta, phi, R_source, t_s, ADF parameters] in radians, meters and seconds
+#         cov_mat: jnp.array
+#             Covariance matrix of the reconstructed parameters
+#         jnp_coeffs: jnp.array
+#             Array of linear regression coefficients
+#     Outputs:
+#         energy_and_uncertainty: jnp.array
+#             Array containing the reconstructed energy and its uncertainty [energy, uncertainty]
+#     """
     
-    energy = jax_energy_recons(recons_rad, jnp_coeffs)
+#     energy = jax_energy_recons(recons_rad, jnp_coeffs)
 
-    def energy_func(recons_rad_flat):
-        recons_rad_reshaped = recons_rad_flat.reshape(recons_rad.shape)
-        return jax_energy_recons(recons_rad_reshaped, jnp_coeffs)
+#     def energy_func(recons_rad_flat):
+#         recons_rad_reshaped = recons_rad_flat.reshape(recons_rad.shape)
+#         return jax_energy_recons(recons_rad_reshaped, jnp_coeffs)
 
-    # gradient
-    energy_grad = jax.grad(energy_func)(recons_rad)
+#     # gradient
+#     energy_grad = jax.grad(energy_func)(recons_rad)
     
-    # first order term
-    variance = jnp.dot(energy_grad, jnp.dot(cov_mat, energy_grad))
+#     # first order term
+#     variance = jnp.dot(energy_grad, jnp.dot(cov_mat, energy_grad))
 
-    energy_uncertainty = jnp.sqrt(jnp.abs(variance)) 
+#     energy_uncertainty = jnp.sqrt(jnp.abs(variance)) 
 
-    return jnp.array([energy, energy_uncertainty])
+#     return jnp.array([energy, energy_uncertainty])
 
-jax_energy_and_uncertainty_jit = jax.jit(jax_energy_and_uncertainty)
+# jax_energy_and_uncertainty_jit = jax.jit(jax_energy_and_uncertainty)
 
 def jax_rho_recons(SWF_rad: jnp.array) -> float:
     """ Reconstruct air density from radio wavefront parameters in radians
