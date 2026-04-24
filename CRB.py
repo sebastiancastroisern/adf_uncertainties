@@ -377,10 +377,11 @@ def ADF_single_recon(i: int, theta_PWF_rad: float, phi_PWF_rad: float, rx_max: f
         if verbose:
             print(f"Xmax {i}: X={Xmax[0]:.2e}, Y={Xmax[1]:.2e}, Z={Xmax[2]-pr.groundAltitude:.2e}")
             print(f"Xmax distance to (0,0,0) : {np.linalg.norm(Xmax)/1e3:.2e} km")
-            print( f"  θ  : {initial_guess[0]*r2d:10.2f}°   →   {res.x[0]*r2d:10.2f}°")
-            print( f"  φ  : {initial_guess[1]*r2d:10.2f}°   →   {res.x[1]*r2d:10.2f}°")
-            print(rf"  $\delta\omega$ : {initial_guess[2]:10.2f}    →   {res.x[2]:10.2f}")
-            print( f"  A  : {initial_guess[3]:10.2e}    →   {res.x[3]:10.2e}")
+            print( f"  θ  : {initial_guess[0]*r2d:10.2f}°   →   {res.x[0]*r2d:10.2f}°, with bounds [{bounds[0,0]*r2d:.2f}°, {bounds[0,1]*r2d:.2f}°], intial guess {initial_guess[0]*r2d:.2f}°, alpha_PWF {alpha_rad*r2d:.2f}°")
+            print( f"  φ  : {initial_guess[1]*r2d:10.2f}°   →   {res.x[1]*r2d:10.2f}°, with bounds [{bounds[1,0]*r2d:.2f}°, {bounds[1,1]*r2d:.2f}°], intial guess {initial_guess[1]*r2d:.2f}°, beta_PWF {beta_rad*r2d:.2f}°")
+            print(rf"  dw : {initial_guess[2]:10.2f}    →   {res.x[2]:10.2f} , with bounds [{bounds[2,0]:.2f}, {bounds[2,1]:.2f}]")
+            print( f"  A  : {initial_guess[3]:10.2e}    →   {res.x[3]:10.2e} , with bounds [{bounds[3,0]:.2e}, {bounds[3,1]:.2e}]")
+            print(f"Loss : {res.fun:.2e}")
         
         return (i, res.x[0]*r2d, (res.x[1] % (2*np.pi))*r2d, res.x[2], res.x[3], res.fun) # careful with modulo 2pi
     
@@ -811,7 +812,14 @@ def grammage_reconsrtuction(SWF_res: np.ndarray, ADF_res: np.ndarray, verbose: b
     ADF_rad = jnp.array(ADF_rad)
     grammages_g_cm2 = []
     for i in tqdm(range(SWF_rad.shape[0]), desc='Grammage reconstruction...'):
-        grammages_g_cm2.append(gr.jax_slant_depth_adf_jit(SWF_rad[i, :], ADF_rad[i, :]))
+        grammage = gr.jax_slant_depth_adf_jit(SWF_rad[i, :], ADF_rad[i, :])
+        grammages_g_cm2.append(grammage)
+        if grammage < 0:
+            Xsource = gr.compute_Xsource(SWF_rad[i,:])
+            heights_cm = gr.jax_altitude(Xsource)
+            print(f"Reconstructing grammage for coincidence {i} with height {heights_cm/1e5:.2f} km")
+            max_alt = gr.find_max_alt_point(heights_cm, ADF_rad[i,0])
+            print(f"Max altitude point at {max_alt/1e5:.2f} km ")
         if verbose:
             print(f"Coincidence {i}: Grammage = {grammages_g_cm2[-1]:.2f} g/cm^2")
 
@@ -936,6 +944,7 @@ def main():
     if 'inc' in results_df.columns and 'dec' in results_df.columns:
         incs_decs = np.asarray(results_df[['inc', 'dec']].values)
         B_vecs = cb.compute_B_vec(incs_decs[:,0], incs_decs[:,1])
+        print("[B_vec computed from inc/dec]")
     else:
         # If inc and dec not in dataframe, use a deafult B_vec (might ruin the ADF + CRB)
         B_vecs = np.full((n_to_process, 3), pr.B_vec_norm) 

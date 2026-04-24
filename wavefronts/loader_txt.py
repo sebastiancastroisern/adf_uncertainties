@@ -69,8 +69,8 @@ def build_result_dataframe(file_path:str, nmax:int =None, old:bool =False) -> pd
         df_temp = pd.read_csv(os.path.join(file_path, "input_simus.txt"), comment="#", sep=r'\s+', header=None, usecols=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], 
                         names=['event_idx', 'true_theta', 'true_phi', 'Primary_energy', 'Em_energy', 'Nature_primary', 'XmaxDistance', 'gramage', 'x_Xmax', 'y_Xmax', 'z_Xmax', 'Number_triggered_antennas'])
     else:
-        df_temp = pd.read_csv(os.path.join(file_path, "input_simus.txt"), comment="#", sep=r'\s+', header=None, usecols=[0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 15, 16, 17], 
-                        names=['event_idx', 'true_theta', 'true_phi', 'Primary_energy', 'Nature_primary', 'XmaxDistance', 'gramage', 'x_Xmax', 'y_Xmax', 'z_Xmax', 'Number_triggered_antennas', 'inc', 'dec'])
+        df_temp = pd.read_csv(os.path.join(file_path, "input_simus.txt"), comment="#", sep=r'\s+', header=None, usecols=[0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20], 
+                        names=['event_idx', 'true_theta', 'true_phi', 'Primary_energy', 'Nature_primary', 'XmaxDistance', 'gramage', 'true_x_Xmax', 'true_y_Xmax', 'true_z_Xmax', 'true_x_core', 'true_y_core', 'true_z_core', 'core_alt', 'Number_triggered_antennas', 'inc', 'dec', 'mod'])
     
     if nmax is not None:
         df_temp = df_temp.iloc[:nmax]

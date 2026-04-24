@@ -48,17 +48,10 @@ B_vec = B_vec_norm * modulus * 1e-6  # en T (tesla)
 
 # for AN
 cr = 1.0
-jitter_time = 5e-9                # s
-galactic_noise_floor = 8.0        # µV (aucune idée j'ai pas vérifié)
+jitter_time = 5e-9             # s
+galactic_noise_floor = 8.0     # µV (aucune idée j'ai pas vérifié)
 assym_coeff = 0.01
 amplitude_uncertainty = 0.075  # relative uncertainty on amplitude measurement
-
-# # for NJ
-# cr = 1.0
-# jitter_time = 1e-9                # s
-# galactic_noise_floor = 0.0        # µV (aucune idée j'ai pas vérifié)
-# assym_coeff = 0.01
-# amplitude_uncertainty = 0.1  # relative uncertainty on amplitude measurement
 
 
 # ======================
@@ -81,7 +74,7 @@ bound_rxmax = [0.0, 1e6]
 bound_t0    = [-1e-2, 0.0]
 bound_theta = [0.0, np.pi]
 bound_phi   = [0.0, 2.0 * np.pi]
-bound_dw    = [0.1, 25.0]
+bound_dw    = [1e-2, 50.0]
 bound_A     = [1e3, 1e12]
 
 bounds = np.array([

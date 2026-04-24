@@ -89,6 +89,8 @@ def find_max_alt_point(Xsource_heights: jnp.array, theta_rad: float, max_altitud
     """
 
     total_radius = pr.R_earth * 1e2 + max_altitude_cm
+    if Xsource_heights > max_altitude_cm:
+        return None
     distance = - (Xsource_heights + pr.R_earth * 1e2) * jnp.cos(theta_rad) + jnp.sqrt(total_radius**2 - ((Xsource_heights + pr.R_earth * 1e2) * jnp.sin(theta_rad))**2)
 
     return distance
@@ -116,6 +118,8 @@ def jax_slant_depth_adf(SWF_rad:jnp.ndarray, ADF_rad:jnp.ndarray) -> jnp.ndarray
 
     # Find distance to atmosphere boundary along ray direction
     max_alt_point_dist_cm = find_max_alt_point(height_cm, ADF_rad[0]) # send the true zenith angle
+    if max_alt_point_dist_cm is None:
+        return 0.0
     max_alt_point_dist_m = max_alt_point_dist_cm * 1e-2  # convert cm to m
 
     # Generate sampling points along ray path
@@ -157,6 +161,8 @@ def jax_slant_depth(SWF_rad:jnp.ndarray) -> jnp.ndarray:
 
     # Find distance to atmosphere boundary along ray direction
     max_alt_point_dist_cm = find_max_alt_point(height_cm, SWF_rad[0])
+    if max_alt_point_dist_cm is None:
+        return 0.0
     max_alt_point_dist_m = max_alt_point_dist_cm * 1e-2  # convert cm to m
 
     # Generate sampling points along ray path
@@ -198,6 +204,8 @@ def depth_true_xmax(Xsource:jnp.ndarray, theta_phi_rad:jnp.ndarray) -> jnp.ndarr
 
     # Find distance to atmosphere boundary along ray direction
     max_alt_point_dist_cm = find_max_alt_point(height_cm, theta_phi_rad[0]) # send the true zenith angle
+    if max_alt_point_dist_cm is None:
+        return 0.0
     max_alt_point_dist_m = max_alt_point_dist_cm * 1e-2  # convert cm to m
 
     # Generate sampling points along ray path
