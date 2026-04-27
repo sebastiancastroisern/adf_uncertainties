@@ -814,12 +814,6 @@ def grammage_reconsrtuction(SWF_res: np.ndarray, ADF_res: np.ndarray, verbose: b
     for i in tqdm(range(SWF_rad.shape[0]), desc='Grammage reconstruction...'):
         grammage = gr.jax_slant_depth_adf_jit(SWF_rad[i, :], ADF_rad[i, :])
         grammages_g_cm2.append(grammage)
-        if grammage < 0:
-            Xsource = gr.compute_Xsource(SWF_rad[i,:])
-            heights_cm = gr.jax_altitude(Xsource)
-            print(f"Reconstructing grammage for coincidence {i} with height {heights_cm/1e5:.2f} km")
-            max_alt = gr.find_max_alt_point(heights_cm, ADF_rad[i,0])
-            print(f"Max altitude point at {max_alt/1e5:.2f} km ")
         if verbose:
             print(f"Coincidence {i}: Grammage = {grammages_g_cm2[-1]:.2f} g/cm^2")
 

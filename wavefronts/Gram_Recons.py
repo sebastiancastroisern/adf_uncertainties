@@ -116,8 +116,6 @@ def jax_slant_depth_adf(SWF_rad:jnp.ndarray, ADF_rad:jnp.ndarray) -> jnp.ndarray
 
     # Find distance to atmosphere boundary along ray direction
     max_alt_point_dist_cm = find_max_alt_point(height_cm, ADF_rad[0]) # send the true zenith angle
-    if max_alt_point_dist_cm is None:
-        return 0.0
     max_alt_point_dist_m = max_alt_point_dist_cm * 1e-2  # convert cm to m
 
     # Generate sampling points along ray path
@@ -133,7 +131,7 @@ def jax_slant_depth_adf(SWF_rad:jnp.ndarray, ADF_rad:jnp.ndarray) -> jnp.ndarray
     delta_dist = max_alt_point_dist_cm / (num_points - 1)
     slant_depth = jnp.sum(densities, axis=0) * delta_dist # g/cm^2
 
-    return slant_depth
+    return jnp.maximum(0.0, slant_depth)
 
 def jax_slant_depth(SWF_rad:jnp.ndarray) -> jnp.ndarray:
     """
@@ -159,8 +157,6 @@ def jax_slant_depth(SWF_rad:jnp.ndarray) -> jnp.ndarray:
 
     # Find distance to atmosphere boundary along ray direction
     max_alt_point_dist_cm = find_max_alt_point(height_cm, SWF_rad[0])
-    if max_alt_point_dist_cm is None:
-        return 0.0
     max_alt_point_dist_m = max_alt_point_dist_cm * 1e-2  # convert cm to m
 
     # Generate sampling points along ray path
@@ -176,7 +172,7 @@ def jax_slant_depth(SWF_rad:jnp.ndarray) -> jnp.ndarray:
     delta_dist = max_alt_point_dist_cm / (num_points - 1)
     slant_depth = jnp.sum(densities, axis=0) * delta_dist # g/cm^2
 
-    return slant_depth
+    return jnp.maximum(0.0, slant_depth)
 
 jax_slant_depth_jit = jax.jit(jax_slant_depth)
 jax_slant_depth_adf_jit = jax.jit(jax_slant_depth_adf)
@@ -202,8 +198,6 @@ def depth_true_xmax(Xsource:jnp.ndarray, theta_phi_rad:jnp.ndarray) -> jnp.ndarr
 
     # Find distance to atmosphere boundary along ray direction
     max_alt_point_dist_cm = find_max_alt_point(height_cm, theta_phi_rad[0]) # send the true zenith angle
-    if max_alt_point_dist_cm is None:
-        return 0.0
     max_alt_point_dist_m = max_alt_point_dist_cm * 1e-2  # convert cm to m
 
     # Generate sampling points along ray path
@@ -219,6 +213,6 @@ def depth_true_xmax(Xsource:jnp.ndarray, theta_phi_rad:jnp.ndarray) -> jnp.ndarr
     delta_dist = max_alt_point_dist_cm / (num_points - 1)
     slant_depth = jnp.sum(densities, axis=0) * delta_dist # g/cm^2
 
-    return slant_depth
+    return jnp.maximum(0.0, slant_depth)
 
 depth_true_xmax_jit = jax.jit(depth_true_xmax)
