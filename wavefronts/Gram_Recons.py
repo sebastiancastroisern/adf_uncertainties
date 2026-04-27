@@ -89,8 +89,6 @@ def find_max_alt_point(Xsource_heights: jnp.array, theta_rad: float, max_altitud
     """
 
     total_radius = pr.R_earth * 1e2 + max_altitude_cm
-    if Xsource_heights > max_altitude_cm:
-        return None
     distance = - (Xsource_heights + pr.R_earth * 1e2) * jnp.cos(theta_rad) + jnp.sqrt(total_radius**2 - ((Xsource_heights + pr.R_earth * 1e2) * jnp.sin(theta_rad))**2)
 
     return distance

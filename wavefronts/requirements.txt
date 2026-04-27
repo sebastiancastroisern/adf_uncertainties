@@ -11,3 +11,4 @@ argparse
 scikit-learn
 pyarrow
 fastparquet
+jax
