@@ -479,7 +479,7 @@ def ADF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndar
 
 # ======================= CRB of ADF + SWF ======================= #
 
-def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_res: np.ndarray, ADF_res: np.ndarray, B_vecs: np.ndarray, n_max: int=None, verbose: bool=False) -> np.ndarray:
+def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_res: np.ndarray, ADF_res: np.ndarray, filepath: str, B_vecs: np.ndarray, n_max: int=None, verbose: bool=False) -> np.ndarray:
 
     """ Function calculating the Cramér-Rao Bound for the joint ADF + SWF reconstruction
     Inputs:
@@ -489,6 +489,7 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
         SWF_res: dictionary containing SWF reconstruction results
         ADF_res: dictionary containing ADF reconstruction results
         B_vecs: array of magnetic field vectors
+        filepath: path to the input file
         n_max: maximum number of coincidences to process
         verbose: boolean for verbosity
     Outputs:
@@ -500,7 +501,13 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
     deg2rad      = np.pi / 180.0
     rad2deg      = 180.0 / np.pi
     cpt          = 0
-    # cov_mats     = np.full((n_to_process, 8, 8), np.nan)
+
+    if '-NJ_adc' in filepath or 'efield' in filepath: galactic_noise_floor = 0.0
+    elif '-AN_adc' in filepath: galactic_noise_floor = 12.0
+    else: galactic_noise_floor = 5.2
+    # different mean noises from simulations
+
+    amplitude_uncertainty = 0.0 if 'efield' in filepath else 0.075 # 7.5% amplitude uncertainty for ADC data, 0% for efield data
 
     for current_recons in tqdm(range(n_to_process), desc='ADF + SWF CRB computing...'):
         n_ants = nants[current_recons]
@@ -554,8 +561,10 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
             derivates_ampl[:, i] = (pred_plus_ampl - pred_minus_ampl) / (2 * h[i])
             derivates_time[:, i] = (pred_plus_time - pred_minus_time) / (2 * h[i])
         
-        sigma_amp = pr.amplitude_uncertainty * abs(ADF_3D_model(adf_rad, ant_coords, Xsource, B_vec))  # 7.5% amplitude uncertainty in mV
-        sigma_amp = [ (sigma_amp[i]**2 + pr.galactic_noise_floor**2)**0.5 for i in range(n_ants)]  # Fixed minimum amplitude uncertainty in mV
+        sigma_amp = amplitude_uncertainty * abs(ADF_3D_model(adf_rad, ant_coords, Xsource, B_vec))
+        sigma_amp = [(sigma_amp[i]**2 + galactic_noise_floor**2)**0.5 for i in range(n_ants)] 
+        sigma_amp = np.array(sigma_amp)
+        sigma_amp = np.where(sigma_amp == 0, 1, sigma_amp) # Avoid division by zero
         sigma_time = (pr.jitter_time) # Fixed time uncertainty in s
             
         for k in range(n_ants):
@@ -596,7 +605,7 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
     
     return stds#, cov_mats
 
-def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_res: np.ndarray, ADF_res: np.ndarray, B_vecs: np.ndarray, n_max: int=None, verbose: bool=False) -> np.ndarray:
+def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_res: np.ndarray, ADF_res: np.ndarray, file_path: str, B_vecs: np.ndarray, n_max: int=None, verbose: bool=False) -> np.ndarray:
     """ Function calculating the Cramér-Rao Bound for the joint ADF + SWF reconstruction
     Inputs:
         ncoincs: number of coincidences
@@ -604,6 +613,7 @@ def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_re
         antennas_coords: array of antenna coordinates per coincidence
         SWF_res: dictionary containing SWF reconstruction results
         ADF_res: dictionary containing ADF reconstruction results
+        file_path: path to the file containing the data
         B_vecs: array of magnetic field vectors
         n_max: maximum number of coincidences to process
         verbose: boolean for verbosity
@@ -616,7 +626,10 @@ def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_re
     deg2rad      = np.pi / 180.0
     rad2deg      = 180.0 / np.pi
     cpt          = 0
-    # cov_mats     = np.full((n_to_process, 4, 4), np.nan)
+    if '-NJ_adc' in file_path or 'efield' in file_path: galactic_noise_floor = 0.0
+    elif '-AN_adc' in file_path: galactic_noise_floor = 12.0
+    else: galactic_noise_floor = 5.2
+    amplitude_uncertainty = 0.0 if '-NJ_adc' in file_path or 'efield' in file_path else 0.075 # 7.5% amplitude uncertainty for ADC data, 0% for efield data
 
     for current_recons in tqdm(range(n_to_process), desc='ADF only CRB computing...'):
         n_ants = nants[current_recons]
@@ -654,8 +667,10 @@ def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_re
             # Dérivée
             derivates_ampl[:, i] = (pred_plus_ampl - pred_minus_ampl) / (2 * h[i])
         
-        sigma_amp = pr.amplitude_uncertainty * abs(ADF_3D_model(adf_rad, ant_coords, Xsource, B_vec))  # 7.5% amplitude uncertainty in mV
-        sigma_amp = [ (sigma_amp[i]**2 + pr.galactic_noise_floor**2)**0.5 for i in range(n_ants)]  # Fixed minimum amplitude uncertainty in mV
+        sigma_amp = amplitude_uncertainty * abs(ADF_3D_model(adf_rad, ant_coords, Xsource, B_vec))  # 7.5% amplitude uncertainty in mV
+        sigma_amp = [ (sigma_amp[i]**2 + galactic_noise_floor**2)**0.5 for i in range(n_ants)]  # Fixed minimum amplitude uncertainty in mV
+        sigma_amp = np.array(sigma_amp)
+        sigma_amp = np.where(sigma_amp == 0, 1, sigma_amp) # Avoid division by zero
             
         for k in range(n_ants):
             fisher_mat += np.outer(derivates_ampl[k,:], derivates_ampl[k,:]) / (sigma_amp[k]**2)
@@ -964,8 +979,8 @@ def main():
     # --- Compute CRB ---
     if run_CRB or args.crb:
         print("\nComputing CRB for ADF + SWF...")
-        CRB_res = ADF_SWF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, B_vecs, n_max=n_to_process, verbose=verbose_bool)
-        CRB_ADF_only = ADF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, B_vecs, n_max=n_to_process, verbose=verbose_bool)
+        CRB_res = ADF_SWF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, B_vecs, n_max=n_to_process, verbose=verbose_bool)
+        CRB_ADF_only = ADF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, B_vecs, n_max=n_to_process, verbose=verbose_bool)
         results_df = add_df_columns(results_df, events_ids_unique, CRB_res=CRB_res, CRB_ADF_only=CRB_ADF_only)
     else: 
         print("[CRB loaded]")
