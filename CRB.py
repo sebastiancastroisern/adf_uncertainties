@@ -502,12 +502,38 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
     rad2deg      = 180.0 / np.pi
     cpt          = 0
 
-    if '-NJ_adc' in filepath or 'efield' in filepath: galactic_noise_floor = 0.0
-    elif '-AN_adc' in filepath: galactic_noise_floor = 12.0
-    else: galactic_noise_floor = 5.2
-    # different mean noises from simulations
+    # Determine noise floor and amplitude uncertainty based on file path
+    is_efield = 'efield' in filepath
+    is_gp300 = 'GP300' in filepath
+    is_gp289 = 'GP289' in filepath
+    is_nj_adc = '-NJ_adc' in filepath
+    is_an_adc = '-AN_adc' in filepath
 
-    amplitude_uncertainty = 0.0 if 'efield' in filepath else 0.075 # 7.5% amplitude uncertainty for ADC data, 0% for efield data
+    if is_gp300:  # ZHAireS
+        if is_nj_adc or is_efield:
+            galactic_noise_floor = 0.0
+        elif is_an_adc:
+            galactic_noise_floor = 15.0
+        else:
+            galactic_noise_floor = 4.0
+
+    elif is_gp289:  # ZHAireS
+        if is_nj_adc or is_efield:
+            galactic_noise_floor = 0.0
+        elif is_an_adc:
+            galactic_noise_floor = 12.0
+        else:
+            galactic_noise_floor = 5.0
+
+    else:  # CoREAS
+        if is_efield:
+            galactic_noise_floor = 0.0
+        elif is_an_adc:
+            galactic_noise_floor = 10.0
+        else:
+            galactic_noise_floor = 0.0
+
+    amplitude_uncertainty = 0.0 if is_efield else 0.075
 
     for current_recons in tqdm(range(n_to_process), desc='ADF + SWF CRB computing...'):
         n_ants = nants[current_recons]
@@ -626,10 +652,39 @@ def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_re
     deg2rad      = np.pi / 180.0
     rad2deg      = 180.0 / np.pi
     cpt          = 0
-    if '-NJ_adc' in file_path or 'efield' in file_path: galactic_noise_floor = 0.0
-    elif '-AN_adc' in file_path: galactic_noise_floor = 12.0
-    else: galactic_noise_floor = 5.2
-    amplitude_uncertainty = 0.0 if '-NJ_adc' in file_path or 'efield' in file_path else 0.075 # 7.5% amplitude uncertainty for ADC data, 0% for efield data
+
+    # Determine noise floor and amplitude uncertainty based on file path
+    is_efield = 'efield' in file_path
+    is_gp300 = 'GP300' in file_path
+    is_gp289 = 'GP289' in file_path
+    is_nj_adc = '-NJ_adc' in file_path
+    is_an_adc = '-AN_adc' in file_path
+
+    if is_gp300:  # ZHAireS
+        if is_nj_adc or is_efield:
+            galactic_noise_floor = 0.0
+        elif is_an_adc:
+            galactic_noise_floor = 15.0
+        else:
+            galactic_noise_floor = 4.0
+
+    elif is_gp289:  # ZHAireS
+        if is_nj_adc or is_efield:
+            galactic_noise_floor = 0.0
+        elif is_an_adc:
+            galactic_noise_floor = 12.0
+        else:
+            galactic_noise_floor = 5.0
+
+    else:  # CoREAS
+        if is_efield:
+            galactic_noise_floor = 0.0
+        elif is_an_adc:
+            galactic_noise_floor = 10.0
+        else:
+            galactic_noise_floor = 0.0
+
+    amplitude_uncertainty = 0.0 if is_efield else 0.075
 
     for current_recons in tqdm(range(n_to_process), desc='ADF only CRB computing...'):
         n_ants = nants[current_recons]
