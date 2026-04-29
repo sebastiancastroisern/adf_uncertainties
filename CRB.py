@@ -509,47 +509,49 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
     is_nj_adc = '-NJ_adc' in filepath
     is_an_adc = '-AN_adc' in filepath
 
+    jitter_time_min = 0.5e-9 # 0.5 ns, typical time resolution for electric field measurements
+
     if is_efield:
-        min_amplitude = 1e-3 # 1e-3 µV/m, minimal increment of values
-        jitter_time   = 0.5e-9 # 0.5 ns, typical time resolution for electric field measurements
-        galactic_noise_floor = 0.0
-        amplitude_uncertainty = 0.0
+        min_amplitude    = 1e-3 # 1e-3 µV/m, minimal increment of values
+        jitter_time      = 0.0 # No added time jitter en Efield
+        background_noise = 0.0 # Std of background noise
+        amplitude_uncertainty = 0.0 # Relative uncertainty on amplitude, e.g. due to calibration (0.075 = 7.5%)
 
     elif is_gp300:  # ZHAireS
         min_amplitude = 1.0 # 1 ADC count, minimal increment of values
         if is_nj_adc:
-            jitter_time = 0.5e-9
-            galactic_noise_floor = 0.0
+            jitter_time = 0.0
+            background_noise = 0.0
             amplitude_uncertainty = 0.0
         elif is_an_adc:
             jitter_time = 5e-9
-            galactic_noise_floor = 15.0
+            background_noise = 15.0
             amplitude_uncertainty = 0.075
         else:
             jitter_time = 5e-9
-            galactic_noise_floor = 4.0
+            background_noise = 4.0
             amplitude_uncertainty = 0.075
 
     elif is_gp289:  # ZHAireS
-        min_amplitude = 1.0 # 1 ADC count, minimal increment of values
+        min_amplitude = 1.0 
         if is_nj_adc:
-            jitter_time = 0.5e-9
-            galactic_noise_floor = 0.0
+            jitter_time = 0.0
+            background_noise = 0.0
             amplitude_uncertainty = 0.0
         elif is_an_adc:
             jitter_time = 5e-9
-            galactic_noise_floor = 12.0
+            background_noise = 12.0
             amplitude_uncertainty = 0.075
         else:
             jitter_time = 5e-9
-            galactic_noise_floor = 5.0
+            background_noise = 5.0
             amplitude_uncertainty = 0.075
 
     else:  # CoREAS
         min_amplitude = 1.0 # 1 ADC count, minimal increment of values
         if is_an_adc:
             jitter_time = 5e-9
-            galactic_noise_floor = 10.0
+            background_noise = 10.0
             amplitude_uncertainty = 0.075
 
     for current_recons in tqdm(range(n_to_process), desc='ADF + SWF CRB computing...'):
@@ -605,10 +607,10 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
             derivates_time[:, i] = (pred_plus_time - pred_minus_time) / (2 * h[i])
         
         sigma_amp = amplitude_uncertainty * abs(ADF_3D_model(adf_rad, ant_coords, Xsource, B_vec))
-        sigma_amp = [(sigma_amp[i]**2 + galactic_noise_floor**2 + min_amplitude**2)**0.5 for i in range(n_ants)] 
+        sigma_amp = [(sigma_amp[i]**2 + background_noise**2 + min_amplitude**2)**0.5 for i in range(n_ants)] 
         sigma_amp = np.array(sigma_amp)
         sigma_amp = np.where(sigma_amp == 0, 1, sigma_amp) # Avoid division by zero
-        sigma_time = (jitter_time) # Fixed time uncertainty in s
+        sigma_time = np.sqrt((jitter_time**2 + jitter_time_min**2)) # Fixed time uncertainty in s
             
         for k in range(n_ants):
             fisher_mat += np.outer(derivates_ampl[k,:], derivates_ampl[k,:]) / (sigma_amp[k]**2)
@@ -679,38 +681,37 @@ def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_re
 
     if is_efield:
         min_amplitude = 1e-3 # 1e-3 µV/m, minimal increment of values
-        jitter_time   = 0.5e-9 # 0.5 ns, typical time resolution for electric field measurements
-        galactic_noise_floor = 0.0
+        background_noise = 0.0
         amplitude_uncertainty = 0.0
 
     elif is_gp300:  # ZHAireS
         min_amplitude = 1.0 # 1 ADC count, minimal increment of values
         if is_nj_adc:
-            galactic_noise_floor = 0.0
+            background_noise = 0.0
             amplitude_uncertainty = 0.0
         elif is_an_adc:
-            galactic_noise_floor = 15.0
+            background_noise = 15.0
             amplitude_uncertainty = 0.075
         else:
-            galactic_noise_floor = 4.0
+            background_noise = 4.0
             amplitude_uncertainty = 0.075
 
     elif is_gp289:  # ZHAireS
         min_amplitude = 1.0 # 1 ADC count, minimal increment of values
         if is_nj_adc:
-            galactic_noise_floor = 0.0
+            background_noise = 0.0
             amplitude_uncertainty = 0.0
         elif is_an_adc:
-            galactic_noise_floor = 12.0
+            background_noise = 12.0
             amplitude_uncertainty = 0.075
         else:
-            galactic_noise_floor = 5.0
+            background_noise = 5.0
             amplitude_uncertainty = 0.075
 
     else:  # CoREAS
         min_amplitude = 1.0 # 1 ADC count, minimal increment of values
         if is_an_adc:
-            galactic_noise_floor = 10.0
+            background_noise = 10.0
             amplitude_uncertainty = 0.075
 
 
@@ -751,7 +752,7 @@ def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_re
             derivates_ampl[:, i] = (pred_plus_ampl - pred_minus_ampl) / (2 * h[i])
         
         sigma_amp = amplitude_uncertainty * abs(ADF_3D_model(adf_rad, ant_coords, Xsource, B_vec))  # 7.5% amplitude uncertainty in mV
-        sigma_amp = [ (sigma_amp[i]**2 + galactic_noise_floor**2 + min_amplitude**2)**0.5 for i in range(n_ants)]  # Fixed minimum amplitude uncertainty in mV
+        sigma_amp = [ (sigma_amp[i]**2 + background_noise**2 + min_amplitude**2)**0.5 for i in range(n_ants)]  # Fixed minimum amplitude uncertainty in mV
         sigma_amp = np.array(sigma_amp)
         sigma_amp = np.where(sigma_amp == 0, 1, sigma_amp) # Avoid division by zero
             
