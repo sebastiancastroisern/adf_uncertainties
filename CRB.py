@@ -145,7 +145,7 @@ def PWF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray
 
 # ============================ SWF ============================ #
 
-def SWF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray, peak_time_array: np.ndarray, PWF_res: np.ndarray, verbose: bool=False, n_max: int=None, event_type: str='EAS'):
+def SWF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray, peak_time_array: np.ndarray, PWF_res: np.ndarray, verbose: bool=False, n_max: int=None, event_type: str='EAS', file_path: str=args.filepath, groundAltitude: float=coba.groundAltitude) -> np.ndarray:
         """ SWF reconstruction for all coincidences
         Inputs:
             ncoincs: number of coincidences
@@ -168,7 +168,7 @@ def SWF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray
                 alpha_PWF_rad = PWF_res[i,0] * deg2rad # we use theta and phi from PWF as initial guesses for alpha and beta
                 beta_PWF_rad  = PWF_res[i,1] * deg2rad # they should not be too far, but not quite exactly the same
 
-                _, alpha_SWF_deg, beta_SWF_deg, rxmax_SWF, t0_SWF, swf_loss = SWF_single_recon(i, alpha_PWF_rad, beta_PWF_rad, antenna_coords_array[i,:nants[i]], peak_time_array[i,:nants[i]], verbose, event_type)
+                _, alpha_SWF_deg, beta_SWF_deg, rxmax_SWF, t0_SWF, swf_loss = SWF_single_recon(i, alpha_PWF_rad, beta_PWF_rad, antenna_coords_array[i,:nants[i]], peak_time_array[i,:nants[i]], verbose, event_type, file_path, groundAltitude)
 
                 SWF_res[i,0] = alpha_SWF_deg
                 SWF_res[i,1] = beta_SWF_deg
@@ -184,7 +184,7 @@ def SWF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray
 
         return SWF_res, SWF_losses
 
-def SWF_single_recon(i: int, alpha_PWF_rad: float, beta_PWF_rad: float, ant_coords: np.ndarray, peak_time_arr: np.ndarray, verbose: bool, event_type: bool='EAS') -> Tuple[int, float, float, float, float]:
+def SWF_single_recon(i: int, alpha_PWF_rad: float, beta_PWF_rad: float, ant_coords: np.ndarray, peak_time_arr: np.ndarray, verbose: bool, event_type: bool='EAS', file_path: str=args.filepath, groundAltitude: float=coba.groundAltitude) -> Tuple[int, float, float, float, float]:
     rad2deg = 180.0 / np.pi
     deg2rad = np.pi / 180.0
 
@@ -204,8 +204,8 @@ def SWF_single_recon(i: int, alpha_PWF_rad: float, beta_PWF_rad: float, ant_coor
 
         # Initial guess
         PWF_guess = np.array(bounds, dtype=np.float64).mean(axis=1)
-
-        args = (ant_coords, peak_time_arr, True) # if true returns chi2/ndof
+        uncertainties = cb.uncertainties_from_file_path(file_path) 
+        args = (ant_coords, peak_time_arr, True, uncertainties,groundAltitude) # if true returns chi2/ndof
         
         resu = differential_evolution(SWF_loss, bounds, args=args, strategy='best1bin', maxiter=3000, seed=42, tol=1e-6, mutation=(0.5, 1), recombination=0.7, x0=PWF_guess)
 
@@ -227,11 +227,11 @@ def SWF_single_recon(i: int, alpha_PWF_rad: float, beta_PWF_rad: float, ant_coor
 
 def worker_function(args: Tuple) -> Tuple[int, float, float, float, float]:
     """Fonction wrapper pour multiprocessing (doit être picklable)"""
-    i, alpha_PWF_rad, beta_PWF_rad, ant_coords, peak_time_arr, verbose, event_type = args
+    i, alpha_PWF_rad, beta_PWF_rad, ant_coords, peak_time_arr, verbose, event_type, file_path, groundAltitude = args
     return SWF_single_recon(i, alpha_PWF_rad, beta_PWF_rad, ant_coords, 
-                            peak_time_arr, verbose, event_type)
+                            peak_time_arr, verbose, event_type, file_path, groundAltitude)
 
-def SWF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray, peak_time_array: np.ndarray, PWF_res: np.ndarray, verbose: bool=False, event_type: str='EAS', n_max: int=None) -> np.ndarray:
+def SWF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray, peak_time_array: np.ndarray, PWF_res: np.ndarray, verbose: bool=False, event_type: str='EAS', n_max: int=None, file_path: str=args.filepath, groundAltitude: float=coba.groundAltitude) -> np.ndarray:
     """
     SWF reconstruction with multiprocessing.
     
@@ -272,7 +272,7 @@ def SWF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndar
         peak_time_arr = peak_time_array[i, :nants[i]].copy()
         
         args_list.append((i, alpha_PWF_rad, beta_PWF_rad, ant_coords, 
-                        peak_time_arr, verbose, event_type))
+                        peak_time_arr, verbose, event_type, file_path, groundAltitude))
     
     # Parallel processing with progress bar
     with mp.Pool(processes=n_processes) as pool:
@@ -305,7 +305,7 @@ def SWF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndar
 
 # ============================ ADF ============================ #
 
-def ADF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray, peak_amp_array: np.ndarray, PWF_res: np.ndarray, SWF_res: np.ndarray, B_vecs: np.ndarray, verbose: bool=False, n_max: int=None) -> np.ndarray:
+def ADF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray, peak_amp_array: np.ndarray, PWF_res: np.ndarray, SWF_res: np.ndarray, B_vecs: np.ndarray, verbose: bool=False, n_max: int=None, filepath: str=args.filepath, groundAltitude: float=coba.groundAltitude) -> np.ndarray:
     """ ADF reconstruction for all coincidences 
     Inputs:
         ncoincs: number of coincidences
@@ -338,7 +338,7 @@ def ADF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray
     
     for i in tqdm(range(n_to_process), desc='ADF in progress...'):
 
-        i, theta_deg, phi_deg, dw, Amp, loss = ADF_single_recon(i, theta_PWF_rad[i], phi_PWF_rad[i], rx_max[i], alpha_PWF_rad[i], beta_PWF_rad[i], antenna_coords_array[i,:nants[i]], peak_amp_array[i,:nants[i]], B_vec[i], verbose)
+        i, theta_deg, phi_deg, dw, Amp, loss = ADF_single_recon(i, theta_PWF_rad[i], phi_PWF_rad[i], rx_max[i], alpha_PWF_rad[i], beta_PWF_rad[i], antenna_coords_array[i,:nants[i]], peak_amp_array[i,:nants[i]], B_vec[i], verbose, filepath, groundAltitude=groundAltitude)
 
         ADF_res[i,0] = theta_deg
         ADF_res[i,1] = phi_deg
@@ -350,13 +350,13 @@ def ADF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray
 
     return ADF_res, ADF_losses
 
-def ADF_single_recon(i: int, theta_PWF_rad: float, phi_PWF_rad: float, rx_max: float, alpha_rad: float, beta_rad: float, ant_coords: np.ndarray, peak_amp_arr: np.ndarray, B_vec: np.ndarray, verbose: bool=False) -> Tuple[int, float, float, float, float]:
+def ADF_single_recon(i: int, theta_PWF_rad: float, phi_PWF_rad: float, rx_max: float, alpha_rad: float, beta_rad: float, ant_coords: np.ndarray, peak_amp_arr: np.ndarray, B_vec: np.ndarray, verbose: bool=False, filepath: str=args.filepath, groundAltitude: float=coba.groundAltitude) -> Tuple[int, float, float, float, float]:
     """Single ADF reconstruction for one coincidence, ca=cos(alpha_PWF), sa=sin(alpha_PWF), cb=cos(beta_PWF), sb=sin(beta_PWF)"""
     r2d, d2r = 180.0/np.pi, np.pi/180.0
     
     try:
         # Xmax position
-        Xmax = cb.build_Xsource_np(alpha_rad, beta_rad, rx_max)
+        Xmax = np.array(cb.compute_Xsource(alpha_rad, beta_rad, rx_max))
 
         # Bounds and initial guess
         angle_pm = 3*d2r
@@ -368,14 +368,15 @@ def ADF_single_recon(i: int, theta_PWF_rad: float, phi_PWF_rad: float, rx_max: f
         max_idx = peak_amp_arr.argmax()
         Amp_guess = np.linalg.norm(ant_coords[max_idx]-Xmax)*peak_amp_arr[max_idx] # propagation of 1/r to highest amplitude antenna => Amp guess = r*Amp_max
         initial_guess = np.array([theta_PWF_rad, phi_PWF_rad, 5, Amp_guess], dtype=np.float64)
+        uncertainties = cb.uncertainties_from_file_path(filepath)
         
         # Optimization
         res = minimize(ADF_loss, initial_guess, bounds=bounds, 
-                      args=(peak_amp_arr, ant_coords, Xmax, False, B_vec), 
+                      args=(peak_amp_arr, ant_coords, Xmax, False, B_vec, uncertainties, groundAltitude), 
                       method='migrad', tol=1e-5)
         
         if verbose:
-            print(f"Xmax {i}: X={Xmax[0]:.2e}, Y={Xmax[1]:.2e}, Z={Xmax[2]-pr.groundAltitude:.2e}")
+            print(f"Xmax {i}: X={Xmax[0]:.2e}, Y={Xmax[1]:.2e}, Z={Xmax[2]-groundAltitude:.2e}")
             print(f"Xmax distance to (0,0,0) : {np.linalg.norm(Xmax)/1e3:.2e} km")
             print( f"  θ  : {initial_guess[0]*r2d:10.2f}°   →   {res.x[0]*r2d:10.2f}°, with bounds [{bounds[0,0]*r2d:.2f}°, {bounds[0,1]*r2d:.2f}°], intial guess {initial_guess[0]*r2d:.2f}°, alpha_PWF {alpha_rad*r2d:.2f}°")
             print( f"  φ  : {initial_guess[1]*r2d:10.2f}°   →   {res.x[1]*r2d:10.2f}°, with bounds [{bounds[1,0]*r2d:.2f}°, {bounds[1,1]*r2d:.2f}°], intial guess {initial_guess[1]*r2d:.2f}°, beta_PWF {beta_rad*r2d:.2f}°")
@@ -393,10 +394,10 @@ def ADF_single_recon(i: int, theta_PWF_rad: float, phi_PWF_rad: float, rx_max: f
 
 def worker_function_adf(args: Tuple) -> Tuple[int, float, float, float, float]:
     """Wrapper for multiprocessing"""
-    i, th, ph, rx, al, be, B_vec, ant_coords, peak_amp_arr, verbose = args
-    return ADF_single_recon(i, th, ph, rx, al, be, ant_coords, peak_amp_arr, B_vec, verbose)
+    i, th, ph, rx, al, be, B_vec, ant_coords, peak_amp_arr, verbose, filepath, groundAltitude = args
+    return ADF_single_recon(i, th, ph, rx, al, be, ant_coords, peak_amp_arr, B_vec, verbose, filepath, groundAltitude)
 
-def ADF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray, peak_amp_array: np.ndarray, PWF_res: np.ndarray, SWF_res: np.ndarray, B_vecs: np.ndarray, verbose: bool=False, n_max: int=None) -> np.ndarray:
+def ADF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray, peak_amp_array: np.ndarray, PWF_res: np.ndarray, SWF_res: np.ndarray, B_vecs: np.ndarray, verbose: bool=False, n_max: int=None, filepath: str=args.filepath, groundAltitude: float=coba.groundAltitude) -> np.ndarray:
     """
     ADF reconstruction with multiprocessing.
     
@@ -444,7 +445,7 @@ def ADF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndar
         peak_amp_arr = peak_amp_array[i, :nants[i]].copy()
         
         args_list.append((i, th[i], ph[i], rx[i], al[i], be[i], Bv[i],
-                        ant_coords, peak_amp_arr, verbose))
+                        ant_coords, peak_amp_arr, verbose, filepath, groundAltitude))
     
     # Free memory from preprocessed arrays
     del th, ph, al, be, rx
@@ -479,7 +480,7 @@ def ADF_recons_mp(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndar
 
 # ======================= CRB of ADF + SWF ======================= #
 
-def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_res: np.ndarray, ADF_res: np.ndarray, filepath: str, B_vecs: np.ndarray, n_max: int=None, verbose: bool=False) -> np.ndarray:
+def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_res: np.ndarray, ADF_res: np.ndarray, filepath: str, B_vecs: np.ndarray, n_max: int=None, verbose: bool=False, groundAltitude: float=coba.groundAltitude) -> np.ndarray:
 
     """ Function calculating the Cramér-Rao Bound for the joint ADF + SWF reconstruction
     Inputs:
@@ -502,57 +503,7 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
     rad2deg      = 180.0 / np.pi
     cpt          = 0
 
-    # Determine noise floor and amplitude uncertainty based on file path
-    is_efield = 'efield' in filepath
-    is_gp300 = 'GP300' in filepath
-    is_gp289 = 'GP289' in filepath
-    is_nj_adc = '-NJ_adc' in filepath
-    is_an_adc = '-AN_adc' in filepath
-
-    jitter_time_min = 0.5e-9 # 0.5 ns, typical time resolution for electric field measurements
-
-    if is_efield:
-        min_amplitude    = 1e-3 # 1e-3 µV/m, minimal increment of values
-        jitter_time      = 0.0 # No added time jitter en Efield
-        background_noise = 0.0 # Std of background noise
-        amplitude_uncertainty = 0.0 # Relative uncertainty on amplitude, e.g. due to calibration (0.075 = 7.5%)
-
-    elif is_gp300:  # ZHAireS
-        min_amplitude = 1.0 # 1 ADC count, minimal increment of values
-        if is_nj_adc:
-            jitter_time = 0.0
-            background_noise = 0.0
-            amplitude_uncertainty = 0.0
-        elif is_an_adc:
-            jitter_time = 5e-9
-            background_noise = 15.0
-            amplitude_uncertainty = 0.075
-        else:
-            jitter_time = 5e-9
-            background_noise = 4.0
-            amplitude_uncertainty = 0.075
-
-    elif is_gp289:  # ZHAireS
-        min_amplitude = 1.0 
-        if is_nj_adc:
-            jitter_time = 0.0
-            background_noise = 0.0
-            amplitude_uncertainty = 0.0
-        elif is_an_adc:
-            jitter_time = 5e-9
-            background_noise = 12.0
-            amplitude_uncertainty = 0.075
-        else:
-            jitter_time = 5e-9
-            background_noise = 5.0
-            amplitude_uncertainty = 0.075
-
-    else:  # CoREAS
-        min_amplitude = 1.0 # 1 ADC count, minimal increment of values
-        if is_an_adc:
-            jitter_time = 5e-9
-            background_noise = 10.0
-            amplitude_uncertainty = 0.075
+    sigma_time, background_noise, amplitude_uncertainty = cb.uncertainties_from_file_path(filepath)
 
     for current_recons in tqdm(range(n_to_process), desc='ADF + SWF CRB computing...'):
         n_ants = nants[current_recons]
@@ -568,8 +519,8 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
         adf_rad[0] *= deg2rad
         adf_rad[1] *= deg2rad
 
-        Xsource = cb.build_Xsource_np(swf_rad[0], swf_rad[1], swf_rad[2])
-        
+        Xsource = np.array(cb.compute_Xsource(swf_rad[0], swf_rad[1], swf_rad[2]))
+
         params = np.hstack((swf_rad, adf_rad))
         B_vec = B_vecs[current_recons]
         fisher_mat = np.zeros((8,8))
@@ -593,24 +544,23 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
 
             # Reconstruction of Xmax for perturbed SWF parameters
             # Plus
-            X_max_plus = cb.build_Xsource_np(swf_params_plus[0], swf_params_plus[1], swf_params_plus[2])
-            X_max_minus = cb.build_Xsource_np(swf_params_minus[0], swf_params_minus[1], swf_params_minus[2])
-            
-            pred_plus_ampl  = ADF_3D_model(adf_params_plus, ant_coords, X_max_plus, B_vec) # in mV
-            pred_plus_time  = SWF_model(swf_params_plus, ant_coords) # in s
+            X_max_plus = np.array(cb.compute_Xsource(swf_params_plus[0], swf_params_plus[1], swf_params_plus[2]))
+            X_max_minus = np.array(cb.compute_Xsource(swf_params_minus[0], swf_params_minus[1], swf_params_minus[2]))
 
-            pred_minus_ampl  = ADF_3D_model(adf_params_minus, ant_coords, X_max_minus, B_vec) # in mV
-            pred_minus_time  = SWF_model(swf_params_minus, ant_coords) # in s
+            pred_plus_ampl  = ADF_3D_model(adf_params_plus, ant_coords, X_max_plus, B_vec, groundAltitude=groundAltitude) # in mV
+            pred_plus_time  = SWF_model(swf_params_plus, ant_coords, groundAltitude=groundAltitude) # in s
+
+            pred_minus_ampl  = ADF_3D_model(adf_params_minus, ant_coords, X_max_minus, B_vec, groundAltitude=groundAltitude) # in mV
+            pred_minus_time  = SWF_model(swf_params_minus, ant_coords, groundAltitude=groundAltitude) # in s
             
             # Dérivée
             derivates_ampl[:, i] = (pred_plus_ampl - pred_minus_ampl) / (2 * h[i])
             derivates_time[:, i] = (pred_plus_time - pred_minus_time) / (2 * h[i])
         
-        sigma_amp = amplitude_uncertainty * abs(ADF_3D_model(adf_rad, ant_coords, Xsource, B_vec))
-        sigma_amp = [(sigma_amp[i]**2 + background_noise**2 + min_amplitude**2)**0.5 for i in range(n_ants)] 
+        sigma_amp = amplitude_uncertainty * abs(ADF_3D_model(adf_rad, ant_coords, Xsource, B_vec, groundAltitude=groundAltitude))
+        sigma_amp = [(sigma_amp[i]**2 + background_noise**2)**0.5 for i in range(n_ants)] 
         sigma_amp = np.array(sigma_amp)
         sigma_amp = np.where(sigma_amp == 0, 1, sigma_amp) # Avoid division by zero
-        sigma_time = np.sqrt((jitter_time**2 + jitter_time_min**2)) # Fixed time uncertainty in s
             
         for k in range(n_ants):
             fisher_mat += np.outer(derivates_ampl[k,:], derivates_ampl[k,:]) / (sigma_amp[k]**2)
@@ -650,7 +600,7 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
     
     return stds#, cov_mats
 
-def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_res: np.ndarray, ADF_res: np.ndarray, filepath: str, B_vecs: np.ndarray, n_max: int=None, verbose: bool=False) -> np.ndarray:
+def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_res: np.ndarray, ADF_res: np.ndarray, filepath: str, B_vecs: np.ndarray, n_max: int=None, verbose: bool=False, groundAltitude: float=coba.groundAltitude) -> np.ndarray:
     """ Function calculating the Cramér-Rao Bound for the joint ADF + SWF reconstruction
     Inputs:
         ncoincs: number of coincidences
@@ -672,47 +622,7 @@ def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_re
     rad2deg      = 180.0 / np.pi
     cpt          = 0
 
-    # Determine noise floor and amplitude uncertainty based on file path
-    is_efield = 'efield' in filepath
-    is_gp300 = 'GP300' in filepath
-    is_gp289 = 'GP289' in filepath
-    is_nj_adc = '-NJ_adc' in filepath
-    is_an_adc = '-AN_adc' in filepath
-
-    if is_efield:
-        min_amplitude = 1e-3 # 1e-3 µV/m, minimal increment of values
-        background_noise = 0.0
-        amplitude_uncertainty = 0.0
-
-    elif is_gp300:  # ZHAireS
-        min_amplitude = 1.0 # 1 ADC count, minimal increment of values
-        if is_nj_adc:
-            background_noise = 0.0
-            amplitude_uncertainty = 0.0
-        elif is_an_adc:
-            background_noise = 15.0
-            amplitude_uncertainty = 0.075
-        else:
-            background_noise = 4.0
-            amplitude_uncertainty = 0.075
-
-    elif is_gp289:  # ZHAireS
-        min_amplitude = 1.0 # 1 ADC count, minimal increment of values
-        if is_nj_adc:
-            background_noise = 0.0
-            amplitude_uncertainty = 0.0
-        elif is_an_adc:
-            background_noise = 12.0
-            amplitude_uncertainty = 0.075
-        else:
-            background_noise = 5.0
-            amplitude_uncertainty = 0.075
-
-    else:  # CoREAS
-        min_amplitude = 1.0 # 1 ADC count, minimal increment of values
-        if is_an_adc:
-            background_noise = 10.0
-            amplitude_uncertainty = 0.075
+    _, background_noise, amplitude_uncertainty = cb.uncertainties_from_file_path(filepath)
 
 
     for current_recons in tqdm(range(n_to_process), desc='ADF only CRB computing...'):
@@ -729,7 +639,7 @@ def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_re
         adf_rad[0] *= deg2rad
         adf_rad[1] *= deg2rad
 
-        Xsource = cb.build_Xsource_np(swf_rad[0], swf_rad[1], swf_rad[2])
+        Xsource = np.array(cb.compute_Xsource(swf_rad[0], swf_rad[1], swf_rad[2]))
         B_vec = B_vecs[current_recons]
         fisher_mat = np.zeros((4,4))
 
@@ -745,14 +655,14 @@ def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_re
 
             # Reconstruction of Xmax for perturbed SWF parameters
             
-            pred_plus_ampl  = ADF_3D_model(params_plus, ant_coords, Xsource, B_vec) # in mV
-            pred_minus_ampl  = ADF_3D_model(params_minus, ant_coords, Xsource, B_vec) # in mV
+            pred_plus_ampl  = ADF_3D_model(params_plus, ant_coords, Xsource, B_vec, groundAltitude=groundAltitude) # in mV
+            pred_minus_ampl  = ADF_3D_model(params_minus, ant_coords, Xsource, B_vec, groundAltitude=groundAltitude) # in mV
             
             # Dérivée
             derivates_ampl[:, i] = (pred_plus_ampl - pred_minus_ampl) / (2 * h[i])
         
-        sigma_amp = amplitude_uncertainty * abs(ADF_3D_model(adf_rad, ant_coords, Xsource, B_vec))  # 7.5% amplitude uncertainty in mV
-        sigma_amp = [ (sigma_amp[i]**2 + background_noise**2 + min_amplitude**2)**0.5 for i in range(n_ants)]  # Fixed minimum amplitude uncertainty in mV
+        sigma_amp = amplitude_uncertainty * abs(ADF_3D_model(adf_rad, ant_coords, Xsource, B_vec, groundAltitude=groundAltitude))  # 7.5% amplitude uncertainty in mV
+        sigma_amp = [ (sigma_amp[i]**2 + background_noise**2)**0.5 for i in range(n_ants)]  # Fixed minimum amplitude uncertainty in mV
         sigma_amp = np.array(sigma_amp)
         sigma_amp = np.where(sigma_amp == 0, 1, sigma_amp) # Avoid division by zero
             
@@ -791,7 +701,7 @@ def ADF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SWF_re
     
     return stds #, cov_mats
 
-def PWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, PWF_res: np.ndarray, file_path: str, n_max: int=None, verbose: bool=False):
+def PWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, PWF_res: np.ndarray, file_path: str, n_max: int=None, verbose: bool=False, groundAltitude: float=coba.groundAltitude) -> np.ndarray:
     """ CRB for PWF recons """
     t0           = time.time()                 # Début du timer
     n_to_process = ncoincs if n_max is None else  min(ncoincs, n_max) # Nombre de coïncidences à traiter
@@ -815,8 +725,8 @@ def PWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, PWF_re
             params_minus = pwf_res.copy() ; params_minus[i] -= h[i]
             
             # Dérivée par différences finies
-            pred_plus_time  = PWF_model(params_plus, ant_coords)
-            pred_minus_time = PWF_model(params_minus, ant_coords)
+            pred_plus_time  = PWF_model(params_plus, ant_coords, groundAltitude=groundAltitude)
+            pred_minus_time = PWF_model(params_minus, ant_coords, groundAltitude=groundAltitude)
             
             # Dérivée
             derivates_time[:, i] = (pred_plus_time - pred_minus_time) / (2 * h[i])
@@ -929,9 +839,9 @@ def Xcore_recons(SWF_res: np.ndarray, ADF_res: np.ndarray) -> np.ndarray:
         X_core: array of reconstructed core positions per coincidence in ENU coordinates (in meters)
     """
     
-    d2r = np.pi / 180.0 # Degrees to radians conversion factor
-    k_vect   = np.array(cb.build_K_vector_np(ADF_res[:,0]*d2r, ADF_res[:,1]*d2r).T) # theta and phi to have k vector
-    Xsource  = np.array(cb.build_Xsource_np(SWF_res[:,0]*d2r, SWF_res[:,1]*d2r, SWF_res[:,2]).T) # Build Xsource from SWF results (alpha, beta, rxmax)
+    d2r = np.pi / 180.0 # Degrees to radians conversion factorx
+    k_vect   = np.array(cb.build_K_vector_jnp(ADF_res[:,0]*d2r, ADF_res[:,1]*d2r).T) # theta and phi to have k vector
+    Xsource  = np.array(cb.compute_Xsource(SWF_res[:,0]*d2r, SWF_res[:,1]*d2r, SWF_res[:,2]).T) # Build Xsource from SWF results (alpha, beta, rxmax)
     prop_factor = np.array(pr.groundAltitude - Xsource[:,2]) / (k_vect[:,2]) # proportionnality factor to get from Xsource to Xcore (intersection with ground plane at pr.groundAltitude)
 
     X_core = Xsource + k_vect * prop_factor[:, np.newaxis] 
@@ -1009,6 +919,8 @@ def main():
     nants       = loaded_data['nants']
     antenna_coords_array = loaded_data['antenna_coords_array']
     peak_time_array_m    = loaded_data['peak_time_array_m']
+    groundAltitude = results_df['core_alt'].values.mean() if 'core_alt' in results_df.columns else pr.groundAltitude
+
     del loaded_data # Free memory
 
     PWF_res = PWF_recons(ncoincs, nants, antenna_coords_array, peak_time_array_m, n_max=n_to_process, verbose=verbose_bool)
@@ -1022,9 +934,9 @@ def main():
         print("\nComputing SWF...")
         if multi_processing:
             print(f"[MULTIPROCESSING] {n_to_process} SWF reconstruction with {max(1, min(128, mp.cpu_count() - 1))} CPUs...")
-            SWF_res, SWF_losses = SWF_recons_mp(ncoincs, nants, antenna_coords_array, peak_time_array_s, PWF_res, verbose=verbose_bool, n_max=n_to_process)
+            SWF_res, SWF_losses = SWF_recons_mp(ncoincs, nants, antenna_coords_array, peak_time_array_s, PWF_res, verbose=verbose_bool, n_max=n_to_process, groundAltitude=groundAltitude)
         else:
-            SWF_res, SWF_losses = SWF_recons(ncoincs, nants, antenna_coords_array, peak_time_array_s, PWF_res, verbose=verbose_bool, n_max=n_to_process)
+            SWF_res, SWF_losses = SWF_recons(ncoincs, nants, antenna_coords_array, peak_time_array_s, PWF_res, verbose=verbose_bool, n_max=n_to_process, groundAltitude=groundAltitude)
         # add results to dataframe
         results_df = add_df_columns(results_df, events_ids_unique, SWF_res=SWF_res, SWF_loss=SWF_losses)
         print("[SWF computed]")
@@ -1048,9 +960,9 @@ def main():
         print("\nComputing ADF...")
         if multi_processing:
             print(f"[MULTIPROCESSING] {n_to_process} ADF reconstruction with {max(1, min(128, mp.cpu_count() - 1))} CPUs...")
-            ADF_res, ADF_losses = ADF_recons_mp(ncoincs, nants, antenna_coords_array, peak_amp_array, PWF_res, SWF_res, B_vecs, verbose=verbose_bool, n_max=n_to_process)
+            ADF_res, ADF_losses = ADF_recons_mp(ncoincs, nants, antenna_coords_array, peak_amp_array, PWF_res, SWF_res, B_vecs, verbose=verbose_bool, n_max=n_to_process, groundAltitude=groundAltitude)
         else:
-            ADF_res, ADF_losses = ADF_recons(ncoincs, nants, antenna_coords_array, peak_amp_array, PWF_res, SWF_res, B_vecs, verbose=verbose_bool, n_max=n_to_process)
+            ADF_res, ADF_losses = ADF_recons(ncoincs, nants, antenna_coords_array, peak_amp_array, PWF_res, SWF_res, B_vecs, verbose=verbose_bool, n_max=n_to_process, groundAltitude=groundAltitude)
         print("[ADF computed]")
         results_df = add_df_columns(results_df, events_ids_unique, ADF_res=ADF_res, ADF_loss=ADF_losses)
     else:
@@ -1063,8 +975,8 @@ def main():
     # --- Compute CRB ---
     if run_CRB or args.crb:
         print("\nComputing CRB for ADF + SWF...")
-        CRB_res = ADF_SWF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, B_vecs, n_max=n_to_process, verbose=verbose_bool)
-        CRB_ADF_only = ADF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, B_vecs, n_max=n_to_process, verbose=verbose_bool)
+        CRB_res = ADF_SWF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, B_vecs, n_max=n_to_process, verbose=verbose_bool, groundAltitude=groundAltitude)
+        CRB_ADF_only = ADF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, B_vecs, n_max=n_to_process, verbose=verbose_bool, groundAltitude=groundAltitude)
         results_df = add_df_columns(results_df, events_ids_unique, CRB_res=CRB_res, CRB_ADF_only=CRB_ADF_only)
     else: 
         print("[CRB loaded]")
@@ -1079,7 +991,7 @@ def main():
         print('\n-------------- Starting Grammage Reconstruction --------------')
         print("\nComputing grammage estimates from SWF and ADF results...")
         grammages = grammage_reconsrtuction(SWF_res, ADF_res, verbose=verbose_bool)
-        results_df = add_df_columns(results_df, events_ids_unique, grammages=grammages)
+        results_df = add_df_columns(results_df, events_ids_unique)
     else:
         print("[Grammage NOT computed] => already in dataframe")
 

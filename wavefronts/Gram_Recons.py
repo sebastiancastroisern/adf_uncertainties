@@ -135,7 +135,7 @@ def jax_slant_depth_adf(SWF_rad:jnp.ndarray, ADF_rad:jnp.ndarray) -> jnp.ndarray
 
 def jax_slant_depth(SWF_rad:jnp.ndarray) -> jnp.ndarray:
     """
-    OLD VERSION NOT USED IN CRB_NEX.PY
+    OLD VERSION NOT USED ANYMORE, KEPT FOR REFERENCE.
     Compute atmospheric slant depth along cosmic ray trajectory using the SWF alpha angle as a proxy for the shower angle.
     
     Integrates atmospheric density along the ray path from source to 
