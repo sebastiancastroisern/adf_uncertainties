@@ -841,8 +841,8 @@ def ADF_3D_model(params: np.ndarray, Xants: np.ndarray, Xmax: np.ndarray, B_vec:
 # ------------------------ Cerenkov functions ------------------------
 
 @njit(**kwd)
-def compute_alpha_3D(Xant: np.ndarray, K: np.ndarray) -> float:
-    dXcore = Xant - np.array([0.,0.,coba.groundAltitude], dtype=np.float64) 
+def compute_alpha_3D(Xant: np.ndarray, K: np.ndarray, groundAltitude: float=coba.groundAltitude) -> float:
+    dXcore = Xant - np.array([0.,0.,groundAltitude], dtype=np.float64) 
     U = dXcore / np.linalg.norm(dXcore)
     # Compute angle between shower direction and (horizontal) direction to observer
     alpha = np.arccos(np.dot(K,U))
@@ -850,8 +850,8 @@ def compute_alpha_3D(Xant: np.ndarray, K: np.ndarray) -> float:
     return (alpha)
 
 @njit(**kwd)
-def compute_U(Xant: np.ndarray) -> np.ndarray:
-    dXcore = Xant - np.array([0.,0.,coba.groundAltitude], dtype=np.float64) 
+def compute_U(Xant: np.ndarray, groundAltitude: float=coba.groundAltitude) -> np.ndarray:
+    dXcore = Xant - np.array([0.,0.,groundAltitude], dtype=np.float64) 
     U = dXcore / np.linalg.norm(dXcore)
     return (U)
 
@@ -1005,7 +1005,7 @@ def compute_Cerenkov_3D_2(Xant: np.ndarray, K: np.ndarray, XmaxDist: float, Xmax
     return omega_cr
 
 @njit(**kwd)
-def ADF_grad(params: np.ndarray, Aants: np.ndarray, Xants: np.ndarray, Xmax: np.ndarray, B_vec: np.ndarray=coba.B_vec) -> np.ndarray:
+def ADF_grad(params: np.ndarray, Aants: np.ndarray, Xants: np.ndarray, Xmax: np.ndarray, B_vec: np.ndarray=coba.B_vec, groundAltitude: float=coba.groundAltitude) -> np.ndarray:
     
     theta, phi, delta_omega, amplitude = params
     nants = Aants.shape[0]
@@ -1018,7 +1018,7 @@ def ADF_grad(params: np.ndarray, Aants: np.ndarray, Xants: np.ndarray, Xmax: np.
     # Coordinate transform matrix
     mat = np.vstack((KxB,KxKxB,K))
     # 
-    XmaxDist = (coba.groundAltitude-Xmax[2])/K[2]
+    XmaxDist = (groundAltitude-Xmax[2])/K[2]
     # print('XmaxDist = ',XmaxDist)
     asym = coba.assym_coeff * (1. - np.dot(K,B_vec)**2) # Azimuthal dependence, in \sin^2(\alpha)
     #
