@@ -1,7 +1,7 @@
 import os
 import jax.numpy as jnp
 import numpy as np
-import pandas as pd
+import polars as pl
 import wavefronts.params_config as pr
 import wavefronts.energy_jax as nrjax
 import wavefronts.compute_basic as cmpt
@@ -53,8 +53,8 @@ def load_data(data_file_path: str, needed_keys: list, use_jnp: bool=False) -> di
 
     return ressources
 
-def build_result_dataframe(file_path:str, nmax:int =None, old:bool =False) -> pd.DataFrame:
-    """ Build a pandas DataFrame from the reconstruction results and CRB computations
+def build_result_dataframe(file_path:str, nmax:int =None, old:bool =False) -> pl.DataFrame:
+    """ Build a polars DataFrame from the reconstruction results and CRB computations
     Inputs:
         PWF_res: array containing PWF reconstruction results
         SWF_res: array containing SWF reconstruction results
@@ -62,18 +62,20 @@ def build_result_dataframe(file_path:str, nmax:int =None, old:bool =False) -> pd
         CRB_res: array containing CRB results
         cov_mats: array containing Fisher information matrices
     Outputs:        
-        df: pandas DataFrame containing all results
+        df: polars DataFrame containing all results
     """
 
     if old:
-        df_temp = pd.read_csv(os.path.join(file_path, "input_simus.txt"), comment="#", sep=r'\s+', header=None, usecols=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], 
-                        names=['event_idx', 'true_theta', 'true_phi', 'Primary_energy', 'Em_energy', 'Nature_primary', 'XmaxDistance', 'gramage', 'x_Xmax', 'y_Xmax', 'z_Xmax', 'Number_triggered_antennas'])
+        df_temp = pl.read_csv(os.path.join(file_path, "input_simus.txt"), comment_prefix="#", separator=' ', has_header=False, new_columns=['event_idx', 'true_theta', 'true_phi', 'Primary_energy', 'Em_energy', 'Nature_primary', 'XmaxDistance', 'gramage', 'x_Xmax', 'y_Xmax', 'z_Xmax', 'Number_triggered_antennas'])
     else:
-        df_temp = pd.read_csv(os.path.join(file_path, "input_simus.txt"), comment="#", sep=r'\s+', header=None, usecols=[0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19], 
-                        names=['event_idx', 'true_theta', 'true_phi', 'Primary_energy', 'Nature_primary', 'XmaxDistance', 'gramage', 'true_x_Xmax', 'true_y_Xmax', 'true_z_Xmax', 'true_x_core', 'true_y_core', 'true_z_core', 'core_alt', 'Number_triggered_antennas', 'inc', 'dec', 'mod'])
+        df_temp = pl.read_csv(os.path.join(file_path, "input_simus.txt"), comment_prefix="#", separator=' ', has_header=False, new_columns=['event_idx', 'true_theta', 'true_phi', 'Primary_energy', 'Nature_primary', 'XmaxDistance', 'gramage', 'true_x_Xmax', 'true_y_Xmax', 'true_z_Xmax', 'true_x_core', 'true_y_core', 'true_z_core', 'core_alt', 'Number_triggered_antennas', 'inc', 'dec', 'mod'])
     
     if nmax is not None:
-        df_temp = df_temp.iloc[:nmax]
+        df_temp = df_temp[:nmax]
+
+    df_temp = df_temp.cast({
+        "event_idx": pl.Int64,
+    })
 
     print(f"DataFrame built with {len(df_temp)} events from {file_path}/input_simus.txt")
 

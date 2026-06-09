@@ -5,7 +5,7 @@ import jax
 import time
 import argparse
 import numpy           as np
-import pandas          as pd
+import polars          as pl
 import jax.numpy       as jnp
 import multiprocessing as mp
 import wavefronts.energy_jax    as ej
@@ -44,69 +44,21 @@ if not hasattr(np, 'infty'):
 
 # ======================= Miscellaneous ======================== #
 
-def add_df_columns(df: pd.DataFrame, events_ids: np.ndarray, SWF_res: np.ndarray=None, SWF_loss: np.ndarray=None, ADF_res: np.ndarray=None, ADF_loss: np.ndarray=None, CRB_res: np.ndarray=None, CRB_ADF_only: np.ndarray=None, energies: np.ndarray=None, energies_uncertainty: np.ndarray=None, grammages: np.ndarray=None, xcore: np.ndarray=None) -> pd.DataFrame:
-    """ Add columns to the DataFrame with reconstruction results
-    Inputs:
-        df: pandas DataFrame
-        events_ids: array containing event indices for each coincidence
-        SWF_res: array containing SWF reconstruction results
-        SWF_loss: array containing SWF loss values
-        ADF_res: array containing ADF reconstruction results
-        ADF_loss: array containing ADF loss values
-        CRB_res: array containing CRB results
-        CRB_ADF_only: array containing CRB results for ADF only
-        energies: array containing reconstructed energies
-        energies_uncertainty: array containing uncertainties on reconstructed energies
-        grammages: array containing reconstructed grammages
-        xcore: array containing Xcore coordinates
-    Outputs:
-        df: pandas DataFrame with added columns
-    """
-    def assign_columns(df, data, col_names, events_ids):
-        """Assign or replace columns in df, aligned on event_idx."""
-        df_extra = pd.DataFrame(data, columns=col_names)
-        df_extra['event_idx'] = events_ids
-        df_extra = df_extra.set_index('event_idx')
-        for col in col_names:
-            df[col] = df['event_idx'].map(df_extra[col])
-        return df
-
-
-    if SWF_res is not None:
-        df = assign_columns(df, SWF_res, ['recons_alpha', 'recons_beta', 'recons_rxmax', 'recons_t0'], events_ids)
-
-    if SWF_loss is not None:
-        df = assign_columns(df, SWF_loss.reshape(-1,1), ['SWF_loss'], events_ids)
-
-    if ADF_res is not None:
-        df = assign_columns(df, ADF_res, ['recons_theta', 'recons_phi', 'recons_delta_omega', 'recons_amplitude'], events_ids)
-
-    if ADF_loss is not None:
-        df = assign_columns(df, ADF_loss.reshape(-1,1), ['ADF_loss'], events_ids)
-
-    if CRB_res is not None:
-        df = assign_columns(df, CRB_res, ['stds_alpha', 'stds_beta', 'stds_rxmax', 'stds_t0', 'stds_theta', 'stds_phi', 'stds_delta_omega', 'stds_amplitude'], events_ids)
-
-    if CRB_ADF_only is not None:
-        df = assign_columns(df, CRB_ADF_only, ['stds_theta_adf', 'stds_phi_adf', 'stds_delta_omega_adf', 'stds_amplitude_adf'], events_ids)
-
-    if energies is not None and energies_uncertainty is not None:
-        df = assign_columns(df, np.stack([energies, energies_uncertainty], axis=1), ['recons_energy', 'recons_energy_uncertainty'], events_ids)
-
-    if grammages is not None:
-        df = assign_columns(df, np.array(grammages).reshape(-1,1), ['recons_grammage'], events_ids)
-
-    if xcore is not None:
-        df = assign_columns(df, xcore, ['x_core', 'y_core', 'z_core'], events_ids)
-        df = assign_columns(df, np.sqrt(xcore[:,0]**2 + xcore[:,1]**2).reshape(-1,1), ['dist_xcore'], events_ids)
+def add_df_columns(df:pl.DataFrame, data:np.ndarray, col_names:list, events_ids:np.ndarray) -> pl.DataFrame:
+    """Assign or replace columns in df, aligned on event_idx."""
+    new_cols = pl.DataFrame(
+            {col: data[:, i] for i, col in enumerate(col_names)}
+        ).with_columns(
+            pl.Series("event_idx", events_ids)
+        )
+    df =df.join(new_cols, on='event_idx', how='left')
 
     return df
 
 
-
 # ============================ PWF ============================ #
 
-def PWF_recons(ncoincs: int, nants: np.ndarray, antenna_coords_array: np.ndarray, peak_time_array: np.ndarray, n_max: int, verbose: bool=False) -> np.ndarray:
+def PWF_recons(nants: np.ndarray, antenna_coords_array: np.ndarray, peak_time_array: np.ndarray, n_max: int, verbose: bool=False) -> np.ndarray:
     """ PWF reconstruction for all coincidences
     Inputs:
         ncoincs: number of coincidences
@@ -766,7 +718,7 @@ def PWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, PWF_re
             # {'data': stds, 'columns': ['std_theta_deg', 'std_phi_deg']}, 
             # allow_pickle=True)
 
-def angular_error(dataframe:pd.DataFrame) -> np.ndarray:
+def angular_error(dataframe:pl.DataFrame) -> np.ndarray:
 
     deg2rad = np.pi / 180.0
     rad2deg = 180.0 / np.pi
@@ -791,7 +743,7 @@ def angular_error(dataframe:pd.DataFrame) -> np.ndarray:
         psi_deg = psi_rad * rad2deg
         return psi_deg
     
-    if not dataframe.empty:
+    if not dataframe.is_empty:
         dataframe['std_psi'] = dataframe.apply(std_psi, axis=1)
         print("\n Successfully calculated 'std_psi' for all events.")
         dataframe['psi'] = dataframe.apply(psi, axis=1)
@@ -826,7 +778,7 @@ def grammage_reconsrtuction(SWF_res: np.ndarray, ADF_res: np.ndarray, verbose: b
         if verbose:
             print(f"Coincidence {i}: Grammage = {grammages_g_cm2[-1]:.2f} g/cm^2")
 
-    grammages_g_cm2 = jnp.array(grammages_g_cm2)
+    grammages_g_cm2 = np.array(grammages_g_cm2)
     return grammages_g_cm2
 
 def Xcore_recons(SWF_res: np.ndarray, ADF_res: np.ndarray) -> np.ndarray:
@@ -893,7 +845,11 @@ def main():
     if not os.path.exists(os.path.join(file_path, 'results_dataframe.parquet')) or args.test or args.all or args.build:
         results_df = lo.build_result_dataframe(file_path=file_path, nmax=n_to_process, old=args.old)
     else:
-        results_df = pd.read_parquet(os.path.join(file_path, 'results_dataframe.parquet'))
+        results_df = pl.read_parquet(os.path.join(file_path, 'results_dataframe.parquet'))
+
+    # results_df = results_df.cast({
+    #     "event_idx": pl.Int64,
+    # })
 
     file_path = args.filepath if not args.test else os.path.join(args.filepath, 'CRB_test/')
     if not os.path.exists(file_path): os.makedirs(file_path)
@@ -919,11 +875,13 @@ def main():
     nants       = loaded_data['nants']
     antenna_coords_array = loaded_data['antenna_coords_array']
     peak_time_array_m    = loaded_data['peak_time_array_m']
-    groundAltitude = results_df['core_alt'].values.mean() if 'core_alt' in results_df.columns else pr.groundAltitude
+    groundAltitude = results_df['core_alt'].mean() if 'core_alt' in results_df.columns else pr.groundAltitude
+    if groundAltitude < 0 : groundAltitude = pr.groundAltitude
+    print(f"Ground altitude for CRB: {results_df['core_alt'][:5]}")
 
     del loaded_data # Free memory
 
-    PWF_res = PWF_recons(ncoincs, nants, antenna_coords_array, peak_time_array_m, n_max=n_to_process, verbose=verbose_bool)
+    PWF_res = PWF_recons(nants, antenna_coords_array, peak_time_array_m, n_max=n_to_process, verbose=verbose_bool)
     print("[PWF Computed]")
 
     del peak_time_array_m # Free memory
@@ -938,16 +896,16 @@ def main():
         else:
             SWF_res, SWF_losses = SWF_recons(ncoincs, nants, antenna_coords_array, peak_time_array_s, PWF_res, verbose=verbose_bool, n_max=n_to_process, groundAltitude=groundAltitude)
         # add results to dataframe
-        results_df = add_df_columns(results_df, events_ids_unique, SWF_res=SWF_res, SWF_loss=SWF_losses)
+        results_df = add_df_columns(results_df, np.concatenate((SWF_res, SWF_losses.reshape(-1,1)), axis=1), ['recons_alpha', 'recons_beta', 'recons_rxmax', 'recons_t0', 'SWF_loss'], events_ids_unique)
         print("[SWF computed]")
     else:
         SWF_res = results_df[['recons_alpha', 'recons_beta', 'recons_rxmax', 'recons_t0']].values
         print("[SWF loaded]")
 
     del peak_time_array_s # Free memory
-    results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet")) # Save intermediate results
+    results_df.write_parquet(os.path.join(file_path, "results_dataframe.parquet")) # Save intermediate results
     if 'inc' in results_df.columns and 'dec' in results_df.columns:
-        incs_decs = np.asarray(results_df[['inc', 'dec']].values)
+        incs_decs = np.asarray(results_df[['inc', 'dec']])
         B_vecs = cb.compute_B_vec(incs_decs[:,0], incs_decs[:,1])
         print("[B_vec computed from inc/dec]")
     else:
@@ -964,46 +922,48 @@ def main():
         else:
             ADF_res, ADF_losses = ADF_recons(ncoincs, nants, antenna_coords_array, peak_amp_array, PWF_res, SWF_res, B_vecs, verbose=verbose_bool, n_max=n_to_process, groundAltitude=groundAltitude)
         print("[ADF computed]")
-        results_df = add_df_columns(results_df, events_ids_unique, ADF_res=ADF_res, ADF_loss=ADF_losses)
+        results_df = add_df_columns(results_df, np.concatenate((ADF_res, ADF_losses.reshape(-1,1)), axis=1), ['recons_theta', 'recons_phi', 'recons_delta_omega', 'recons_amplitude', 'ADF_loss'], events_ids_unique)
     else:
         ADF_res = results_df[['recons_theta', 'recons_phi', 'recons_delta_omega', 'recons_amplitude']].values
         print("[ADF loaded]")
 
     del peak_amp_array # Free memory
-    results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet"))
+    results_df.write_parquet(os.path.join(file_path, "results_dataframe.parquet"))
 
     # --- Compute CRB ---
     if run_CRB or args.crb:
         print("\nComputing CRB for ADF + SWF...")
         CRB_res = ADF_SWF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, B_vecs, n_max=n_to_process, verbose=verbose_bool, groundAltitude=groundAltitude)
         CRB_ADF_only = ADF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, B_vecs, n_max=n_to_process, verbose=verbose_bool, groundAltitude=groundAltitude)
-        results_df = add_df_columns(results_df, events_ids_unique, CRB_res=CRB_res, CRB_ADF_only=CRB_ADF_only)
+        results_df = add_df_columns(results_df, CRB_res, ['stds_alpha', 'stds_beta', 'stds_rxmax', 'stds_t0', 'stds_theta', 'stds_phi', 'stds_delta_omega', 'stds_amplitude'], events_ids_unique)
+        results_df = add_df_columns(results_df, CRB_ADF_only, ['stds_theta_adf_only', 'stds_phi_adf_only', 'stds_delta_omega_adf_only', 'stds_amplitude_adf_only'], events_ids_unique)
     else: 
         print("[CRB loaded]")
         CRB_res = results_df[['stds_alpha', 'stds_beta', 'stds_rxmax', 'stds_t0', 'stds_theta', 'stds_phi', 'stds_delta_omega', 'stds_amplitude']].values
 
-    results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet"))
+    results_df.write_parquet(os.path.join(file_path, "results_dataframe.parquet"))
 
-    results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet"))
+    results_df.write_parquet(os.path.join(file_path, "results_dataframe.parquet"))
 
     # --- Compute grammage estimates ---
     if run_grammage or args.grammage:
         print('\n-------------- Starting Grammage Reconstruction --------------')
         print("\nComputing grammage estimates from SWF and ADF results...")
         grammages = grammage_reconsrtuction(SWF_res, ADF_res, verbose=verbose_bool)
-        results_df = add_df_columns(results_df, events_ids_unique)
+        results_df = add_df_columns(results_df, grammages.reshape(-1,1), ['recons_grammage'], events_ids_unique)
     else:
         print("[Grammage NOT computed] => already in dataframe")
 
-    results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet"))
+    results_df.write_parquet(os.path.join(file_path, "results_dataframe.parquet"))
 
     Xcores = Xcore_recons(SWF_res, ADF_res)
-    results_df = add_df_columns(results_df, events_ids_unique, xcore=Xcores)
+    results_df = add_df_columns(results_df, Xcores, ['x_core', 'y_core', 'z_core'], events_ids_unique)
+    results_df = results_df.with_columns((np.sqrt(pl.col('x_core')**2 + pl.col('y_core')**2 + pl.col('z_core')**2)).alias('dist_xcore'))
 
     results_df = angular_error(results_df)
 
     # Save results dataframe as .parquet
-    results_df.to_parquet(os.path.join(file_path, "results_dataframe.parquet"))
+    results_df.write_parquet(os.path.join(file_path, "results_dataframe.parquet"))
     print("\nAll done.")
 
 if __name__ == "__main__":
