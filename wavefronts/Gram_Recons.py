@@ -4,6 +4,7 @@ import tqdm
 import wavefronts.params_config as pr
 import numpy as np
 import pandas as pd
+import wavefronts.compute_basic as coba
 
 # Load Linsley atmospheric density model (height vs density)
 linsey_atmosphere = pd.read_parquet("wavefronts/linsley_atmosphere.parquet")
@@ -27,7 +28,7 @@ def compute_k_vect(alpha: jnp.ndarray, beta: jnp.ndarray) -> jnp.ndarray:
     k_vect = jnp.array([sa * cb, sa * sb, ca])
     return k_vect
 
-def compute_Xsource(SWF_rad: jnp.ndarray, ground_altitude: float = pr.groundAltitude) -> jnp.ndarray:
+def compute_Xsource(SWF_rad: jnp.ndarray, ground_altitude: float = coba.groundAltitude) -> jnp.ndarray:
     """Compute source position from spherical wavefront parameters.
     
     Combines direction angles and distance to locate the cosmic ray source

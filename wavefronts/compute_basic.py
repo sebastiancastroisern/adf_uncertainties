@@ -188,14 +188,14 @@ def uncertainties_from_file_path(file_path: str) -> tuple:
                 The relative uncertainty on the amplitude (e.g., due to calibration) to be applied to the reconstructed parameters.
     """
 
-    jitter_time_min = 0.5e-9 
-
     # Determine noise floor and amplitude uncertainty based on file path
     is_efield = 'efield' in file_path
     is_gp300 = 'GP300' in file_path
     is_gp289 = 'GP289' in file_path
     is_nj_adc = '-NJ_adc' in file_path
     is_an_adc = '-AN_adc' in file_path
+
+    jitter_time_min = 0.5e-9 if is_efield else 2e-9 # time step of the data (0.5 ns for Efield, 2 ns for GP300/GP289/CoREAS)
 
     if is_efield:
         min_amplitude    = 1e-3 # 1e-3 µV/m, minimal increment of values
