@@ -65,10 +65,19 @@ def build_result_dataframe(file_path:str, nmax:int =None, old:bool =False) -> pl
         df: polars DataFrame containing all results
     """
 
+    with open(os.path.join(file_path, "input_simus.txt"), "r") as f:
+        lines = f.readlines()
+    corrected_lines = [
+        line.strip() if line.startswith(" ") and not line.lstrip().startswith("#") else line.rstrip("\n")
+        for line in lines
+    ]
+    with open(os.path.join(file_path, "input_simus.txt"), "w") as f:
+        f.write("\n".join(corrected_lines))
+
     if old:
-        df_temp = pl.read_csv(os.path.join(file_path, "input_simus.txt"), comment_prefix="#", separator=' ', has_header=False, new_columns=['event_idx', 'true_theta', 'true_phi', 'Primary_energy', 'Em_energy', 'Nature_primary', 'XmaxDistance', 'gramage', 'x_Xmax', 'y_Xmax', 'z_Xmax', 'Number_triggered_antennas'])
+        df_temp = pl.read_csv(os.path.join(file_path, "input_simus.txt"), comment_prefix="#", separator=' ', columns=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],  has_header=True, new_columns=['event_idx', 'true_theta', 'true_phi', 'Primary_energy', 'Em_energy', 'Nature_primary', 'XmaxDistance', 'gramage', 'x_Xmax', 'y_Xmax', 'z_Xmax', 'Number_triggered_antennas'])
     else:
-        df_temp = pl.read_csv(os.path.join(file_path, "input_simus.txt"), comment_prefix="#", separator=' ', has_header=False, new_columns=['event_idx', 'true_theta', 'true_phi', 'Primary_energy', 'Nature_primary', 'XmaxDistance', 'gramage', 'true_x_Xmax', 'true_y_Xmax', 'true_z_Xmax', 'true_x_core', 'true_y_core', 'true_z_core', 'core_alt', 'Number_triggered_antennas', 'inc', 'dec', 'mod'])
+        df_temp = pl.read_csv(os.path.join(file_path, "input_simus.txt"), comment_prefix="#", separator=' ', columns=[0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19], has_header=True, new_columns=['event_idx', 'true_theta', 'true_phi', 'Primary_energy', 'Nature_primary', 'XmaxDistance', 'gramage', 'true_x_Xmax', 'true_y_Xmax', 'true_z_Xmax', 'true_x_core', 'true_y_core', 'true_z_core', 'core_alt', 'Number_triggered_antennas', 'inc', 'dec', 'mod'])
     
     if nmax is not None:
         df_temp = df_temp[:nmax]

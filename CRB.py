@@ -847,9 +847,8 @@ def main():
     else:
         results_df = pl.read_parquet(os.path.join(file_path, 'results_dataframe.parquet'))
 
-    # results_df = results_df.cast({
-    #     "event_idx": pl.Int64,
-    # })
+    if args.verbose:
+        print(f"Initial results dataframe preview:\n{results_df.head()}\n")
 
     file_path = args.filepath if not args.test else os.path.join(args.filepath, 'CRB_test/')
     if not os.path.exists(file_path): os.makedirs(file_path)
@@ -876,8 +875,11 @@ def main():
     antenna_coords_array = loaded_data['antenna_coords_array']
     peak_time_array_m    = loaded_data['peak_time_array_m']
     groundAltitude = results_df['core_alt'].mean() if 'core_alt' in results_df.columns else pr.groundAltitude
-    if groundAltitude < 0 : groundAltitude = pr.groundAltitude
-    print(f"Ground altitude for CRB: {results_df['core_alt'][:5]}")
+    if groundAltitude <= 0.0 : groundAltitude = pr.groundAltitude
+
+    if args.verbose:
+        print(f"Average core altitude from dataframe: {results_df['core_alt'].mean():.2f} m")
+        print(f"Using ground altitude for CRB calculations: {groundAltitude:.2f} m")
 
     del loaded_data # Free memory
 
