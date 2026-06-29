@@ -512,7 +512,7 @@ def ADF_SWF_CRB(ncoincs: int, nants: np.ndarray, antennas_coords: np.ndarray, SW
         sigma_amp = amplitude_uncertainty * abs(ADF_3D_model(adf_rad, ant_coords, Xsource, B_vec, groundAltitude=groundAltitude))
         sigma_amp = [(sigma_amp[i]**2 + background_noise**2)**0.5 for i in range(n_ants)] 
         sigma_amp = np.array(sigma_amp)
-        sigma_amp = np.where(sigma_amp == 0, 1, sigma_amp) # Avoid division by zero
+        sigma_amp = np.where(sigma_amp == 0, 1., sigma_amp) # Avoid division by zero
             
         for k in range(n_ants):
             fisher_mat += np.outer(derivates_ampl[k,:], derivates_ampl[k,:]) / (sigma_amp[k]**2)
@@ -813,7 +813,7 @@ def main():
         n_max = args.nmax if args.nmax is not None else np.inf
 
     file_path        = args.filepath
-    multi_processing = args.multi
+    multi_processing = args.multi if not args.test else False
     verbose_bool     = False if not args.verbose else True
 
     # Coincidence set loading
@@ -863,8 +863,8 @@ def main():
     if 'recons_grammage' in results_df.columns : run_grammage = False
     if 'recons_energy'   in results_df.columns : run_energy   = False
 
-    if not os.path.exists(os.path.join(file_path, 'results_dataframe.parquet')) or (time.time() - os.path.getmtime(os.path.join(file_path, 'results_dataframe.parquet'))) > 21*24*3600: 
-        run_CRB = run_SWF = run_ADF = run_grammage = run_energy = True
+    # if not os.path.exists(os.path.join(file_path, 'results_dataframe.parquet')) or (time.time() - os.path.getmtime(os.path.join(file_path, 'results_dataframe.parquet'))) > 21*24*3600: 
+        # run_CRB = run_SWF = run_ADF = run_grammage = run_energy = True
     if args.all : run_SWF = run_ADF = run_CRB = run_grammage = run_energy = True # Force run of all steps if --all is specified
 
     print('-------------- Starting CRB Calculations --------------\n')
@@ -901,7 +901,7 @@ def main():
         results_df = add_df_columns(results_df, np.concatenate((SWF_res, SWF_losses.reshape(-1,1)), axis=1), ['recons_alpha', 'recons_beta', 'recons_rxmax', 'recons_t0', 'SWF_loss'], events_ids_unique)
         print("[SWF computed]")
     else:
-        SWF_res = results_df[['recons_alpha', 'recons_beta', 'recons_rxmax', 'recons_t0']].values
+        SWF_res = results_df[['recons_alpha', 'recons_beta', 'recons_rxmax', 'recons_t0']].__array__()
         print("[SWF loaded]")
 
     del peak_time_array_s # Free memory
@@ -926,7 +926,7 @@ def main():
         print("[ADF computed]")
         results_df = add_df_columns(results_df, np.concatenate((ADF_res, ADF_losses.reshape(-1,1)), axis=1), ['recons_theta', 'recons_phi', 'recons_delta_omega', 'recons_amplitude', 'ADF_loss'], events_ids_unique)
     else:
-        ADF_res = results_df[['recons_theta', 'recons_phi', 'recons_delta_omega', 'recons_amplitude']].values
+        ADF_res = results_df['recons_theta', 'recons_phi', 'recons_delta_omega', 'recons_amplitude'].__array__()
         print("[ADF loaded]")
 
     del peak_amp_array # Free memory
@@ -936,12 +936,12 @@ def main():
     if run_CRB or args.crb:
         print("\nComputing CRB for ADF + SWF...")
         CRB_res = ADF_SWF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, B_vecs, n_max=n_to_process, verbose=verbose_bool, groundAltitude=groundAltitude)
-        CRB_ADF_only = ADF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, B_vecs, n_max=n_to_process, verbose=verbose_bool, groundAltitude=groundAltitude)
+        # CRB_ADF_only = ADF_CRB(ncoincs, nants, antenna_coords_array, SWF_res, ADF_res, file_path, B_vecs, n_max=n_to_process, verbose=verbose_bool, groundAltitude=groundAltitude)
         results_df = add_df_columns(results_df, CRB_res, ['stds_alpha', 'stds_beta', 'stds_rxmax', 'stds_t0', 'stds_theta', 'stds_phi', 'stds_delta_omega', 'stds_amplitude'], events_ids_unique)
-        results_df = add_df_columns(results_df, CRB_ADF_only, ['stds_theta_adf_only', 'stds_phi_adf_only', 'stds_delta_omega_adf_only', 'stds_amplitude_adf_only'], events_ids_unique)
+        # results_df = add_df_columns(results_df, CRB_ADF_only, ['stds_theta_adf_only', 'stds_phi_adf_only', 'stds_delta_omega_adf_only', 'stds_amplitude_adf_only'], events_ids_unique)
     else: 
         print("[CRB loaded]")
-        CRB_res = results_df[['stds_alpha', 'stds_beta', 'stds_rxmax', 'stds_t0', 'stds_theta', 'stds_phi', 'stds_delta_omega', 'stds_amplitude']].values
+        CRB_res = results_df[['stds_alpha', 'stds_beta', 'stds_rxmax', 'stds_t0', 'stds_theta', 'stds_phi', 'stds_delta_omega', 'stds_amplitude']].__array__()
 
     results_df.write_parquet(os.path.join(file_path, "results_dataframe.parquet"))
 

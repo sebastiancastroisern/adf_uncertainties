@@ -94,6 +94,24 @@ sigmas = np.array([
     1e6,          # A
     ])  
 
+def build_K_vector(theta, phi):
+    """ Build K vector from zenith and azimuth angles in radians 
+    Inputs:
+        theta: float
+            Zenith angle in radians
+        phi: float
+            Azimuth angle in radians
+    Outputs:
+        K: np.array
+            K vector as a np.array [Kx, Ky, Kz] """
+
+    st = np.sin(theta)
+    ct = np.cos(theta)
+    sp = np.sin(phi)
+    cp = np.cos(phi)
+
+    return -1 * np.array([st * cp, st * sp, ct])
+
 def build_K_vector_jnp(theta, phi):
     """ Build K vector from zenith and azimuth angles in radians 
     Inputs:

@@ -452,9 +452,9 @@ def SWF_loss(params: np.ndarray, Xants: np.ndarray, tants: np.ndarray, ndof: boo
     ----------
     params : array (4,)
         Source parameters: (alpha, beta, r_xmax, t_s).
-        - alpha, beta: direction angles
-        - r_xmax: distance to source
-        - t_s: emission time
+        - alpha, beta: direction angles in rad
+        - r_xmax: distance to source in m
+        - t_s: emission time in s
     Xants : array (nants, 3)
         Antenna positions.
     tants : array (nants,)
